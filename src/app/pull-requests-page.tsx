@@ -5,31 +5,42 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { usePullRequests } from "@/hooks/usePullRequests";
+import { formatAgePtBR } from "@/domain/time";
 import {
-  ageMs,
-  filterPullRequestsBySquad,
-  formatAgePtBR,
-  sortOldestFirst,
-  summarizeReviewState,
-  type Squad,
-} from "@/lib/domain/pullRequests";
+  useTable,
+  type ColumnDef,
+  type SortingState,
+} from "@tanstack/react-table";
+import {
+  DataGrid,
+  DataGridContainer,
+  dataGridFeatures,
+} from "@/components/reui/data-grid/data-grid";
+import { DataGridTable } from "@/components/reui/data-grid/data-grid-table";
+import { Badge } from "@/components/reui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/reui/alert";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Filters } from "@/components/reui/filters/filters";
+import type { FilterQuery, FilterRule } from "@/components/reui/filters/filters-types";
 
-const reposSchema = z.object({
-  repos: z.array(z.object({ slug: z.string(), name: z.string() })),
-});
-
-const settingsSchema = z.object({ refreshIntervalSec: z.number() });
-
-const squadsSchema = z.object({
-  squads: z.array(
+const repositoriesSchema = z.object({
+  repositories: z.array(
     z.object({
-      id: z.number(),
+      uuid: z.string(),
+      slug: z.string(),
       name: z.string(),
-      memberUuids: z.array(z.string()),
-      repoFilterSlugs: z.array(z.string()),
+      monitored: z.boolean(),
+      minApprovals: z.number(),
     }),
   ),
 });
+
+const teamsSchema = z.object({
+  teams: z.array(z.object({ id: z.number(), name: z.string() })),
+});
+
+const settingsSchema = z.object({ pollIntervalSeconds: z.number() });
 
 async function fetchJson<T>(url: string, schema: z.ZodType<T>): Promise<T> {
   const res = await fetch(url);
@@ -39,63 +50,325 @@ async function fetchJson<T>(url: string, schema: z.ZodType<T>): Promise<T> {
   return parsed.data;
 }
 
+function ageLabel(iso: string) {
+  return formatAgePtBR(iso);
+}
+
+function stateBadgeVariant(state: string) {
+  switch (state) {
+    case "approved":
+      return "success";
+    case "changes_requested":
+      return "destructive";
+    case "in_review":
+      return "info";
+    case "waiting":
+    default:
+      return "secondary";
+  }
+}
+
+function stateLabel(state: string) {
+  switch (state) {
+    case "approved":
+      return "Aprovado";
+    case "changes_requested":
+      return "Mudanças pedidas";
+    case "in_review":
+      return "Em revisão";
+    case "waiting":
+    default:
+      return "Aguardando";
+  }
+}
+
 export function PullRequestsPage() {
-  const [selectedSquadId, setSelectedSquadId] = useState<number | null>(null);
-  const [selectedRepoSlug, setSelectedRepoSlug] = useState<string | null>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
+  const [filtersQuery, setFiltersQuery] = useState<FilterQuery>({
+    id: "root",
+    type: "group",
+    combinator: "and",
+    rules: [],
+  });
+  const [nowTick, setNowTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((x) => x + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  void nowTick;
 
   const reposQ = useQuery({
-    queryKey: ["config-repos"],
-    queryFn: () => fetchJson("/api/config/repos", reposSchema),
+    queryKey: ["config-repositories"],
+    queryFn: () => fetchJson("/api/config/repositories", repositoriesSchema),
   });
-  const squadsQ = useQuery({
-    queryKey: ["config-squads"],
-    queryFn: () => fetchJson("/api/config/squads", squadsSchema),
+  const teamsQ = useQuery({
+    queryKey: ["config-teams"],
+    queryFn: () => fetchJson("/api/config/teams", teamsSchema),
   });
   const settingsQ = useQuery({
     queryKey: ["config-settings"],
     queryFn: () => fetchJson("/api/config/settings", settingsSchema),
   });
 
-  const refreshIntervalSec = settingsQ.data?.refreshIntervalSec ?? 30;
+  const pollIntervalSeconds = settingsQ.data?.pollIntervalSeconds ?? 30;
 
   const { query: prsQ, refreshNow } = usePullRequests({
-    filters: { squadId: selectedSquadId, repoSlug: selectedRepoSlug },
-    refreshIntervalSec,
+    filters: { teamId: selectedTeamId },
+    refreshIntervalSec: pollIntervalSeconds,
   });
 
-  const squads: Squad[] = useMemo(() => {
-    return (squadsQ.data?.squads ?? []).map((s) => ({
-      id: s.id,
-      name: s.name,
-      memberUuids: s.memberUuids,
-      repoFilterSlugs: s.repoFilterSlugs,
+  const monitoredRepos = useMemo(
+    () => (reposQ.data?.repositories ?? []).filter((r) => r.monitored),
+    [reposQ.data],
+  );
+
+  const filterFields = useMemo(() => {
+    const repoOptions = monitoredRepos.map((r) => ({
+      value: r.uuid,
+      label: r.name,
+      data: r,
     }));
-  }, [squadsQ.data]);
+    const authorOptions = (prsQ.data?.pullRequests ?? []).map((p) => ({
+      value: p.author.uuid,
+      label: p.author.displayName,
+      data: p.author,
+    }));
+    // dedup autores
+    const seen = new Set<string>();
+    const uniqueAuthors = authorOptions.filter((o) => {
+      if (seen.has(o.value)) return false;
+      seen.add(o.value);
+      return true;
+    });
 
-  const selectedSquad = squads.find((s) => s.id === selectedSquadId) ?? null;
-  const monitoredRepos = reposQ.data?.repos ?? [];
+    return [
+      {
+        id: "repository",
+        label: "Repositório",
+        type: "select" as const,
+        options: repoOptions,
+        placeholder: "Escolha um repositório",
+      },
+      {
+        id: "author",
+        label: "Autor",
+        type: "select" as const,
+        options: uniqueAuthors,
+        placeholder: "Escolha um autor",
+      },
+    ];
+  }, [monitoredRepos, prsQ.data?.pullRequests]);
 
-  const sorted = useMemo(() => {
+  const { selectedRepoUuids, selectedAuthorUuids } = useMemo(() => {
+    const repo = new Set<string>();
+    const author = new Set<string>();
+
+    function walk(rules: Array<FilterRule<any> | any>) {
+      for (const node of rules) {
+        if (!node) continue;
+        if (node.type === "group") walk(node.rules ?? []);
+        if (node.type !== "rule") continue;
+        const path0 = node.path?.[0];
+        const op = node.operator;
+        const v = node.value;
+        const addValue = (set: Set<string>, value: unknown) => {
+          if (typeof value === "string" && value) set.add(value);
+        };
+        const addMany = (set: Set<string>, value: unknown) => {
+          if (Array.isArray(value)) value.forEach((x) => addValue(set, x));
+        };
+
+        if (path0 === "repository") {
+          if (op === "is") addValue(repo, v);
+          if (op === "is_any_of") addMany(repo, v);
+        }
+        if (path0 === "author") {
+          if (op === "is") addValue(author, v);
+          if (op === "is_any_of") addMany(author, v);
+        }
+      }
+    }
+
+    walk(filtersQuery.rules);
+    return {
+      selectedRepoUuids: repo,
+      selectedAuthorUuids: author,
+    };
+  }, [filtersQuery]);
+
+  const filtered = useMemo(() => {
     const prs = prsQ.data?.pullRequests ?? [];
-    // redundância intencional: o servidor já filtra, mas mantemos o domínio puro testável
-    const bySquad = filterPullRequestsBySquad(prs, selectedSquad);
-    const byRepo = selectedRepoSlug
-      ? bySquad.filter((p) => p.repoSlug === selectedRepoSlug)
-      : bySquad;
-    return sortOldestFirst(byRepo);
-  }, [prsQ.data, selectedSquad, selectedRepoSlug]);
+    const byRepo =
+      selectedRepoUuids.size > 0
+        ? prs.filter((p) => selectedRepoUuids.has(p.repository.uuid))
+        : prs;
+    const byAuthor =
+      selectedAuthorUuids.size > 0
+        ? byRepo.filter((p) => selectedAuthorUuids.has(p.author.uuid))
+        : byRepo;
+    return byAuthor;
+  }, [prsQ.data, selectedRepoUuids, selectedAuthorUuids]);
 
-  const [nowMs, setNowMs] = useState<number | null>(null);
-  useEffect(() => {
-    setNowMs(Date.now());
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(id);
+  const summary = useMemo(() => {
+    const over24 = filtered.filter(
+      (p) => p.ageBand === "warning" || p.ageBand === "critical",
+    ).length;
+    const over72 = filtered.filter((p) => p.ageBand === "critical").length;
+    return { over24, over72 };
+  }, [filtered]);
+
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "createdOn", desc: false },
+  ]);
+
+  type Row = (typeof filtered)[number];
+  type Features = typeof dataGridFeatures;
+
+  const columns = useMemo<ColumnDef<Features, Row>[]>(() => {
+    return [
+      {
+        id: "createdOn",
+        accessorFn: (row: Row) => row.createdOn,
+        header: "Idade",
+        cell: (ctx: any) => {
+          const pr: Row = ctx.row.original;
+          const variant =
+            pr.ageBand === "critical"
+              ? "destructive"
+              : pr.ageBand === "warning"
+                ? "warning"
+                : "secondary";
+          const aria =
+            pr.ageBand === "critical"
+              ? "Aberto há mais de 72 horas"
+              : pr.ageBand === "warning"
+                ? "Aberto há mais de 24 horas"
+                : undefined;
+
+          return (
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-block h-2 w-2 rounded-full ${
+                  pr.ageBand === "critical"
+                    ? "bg-destructive"
+                    : pr.ageBand === "warning"
+                      ? "bg-warning"
+                      : "bg-muted-foreground/40"
+                }`}
+                aria-label={aria}
+              />
+              <span
+                className={
+                  pr.ageBand === "critical"
+                    ? "text-destructive"
+                    : pr.ageBand === "warning"
+                      ? "text-warning-foreground"
+                      : ""
+                }
+              >
+                {ageLabel(pr.createdOn)}
+              </span>
+              {pr.ageBand !== "normal" ? (
+                <Badge variant={variant as any} size="sm" radius="full">
+                  {pr.ageBand === "critical" ? "&gt;72h" : "&gt;24h"}
+                </Badge>
+              ) : null}
+            </div>
+          );
+        },
+        sortingFn: (a: any, b: any) =>
+          Date.parse(a.original.createdOn) - Date.parse(b.original.createdOn),
+      },
+      {
+        id: "title",
+        accessorFn: (row: Row) => row.title,
+        header: "Pull request",
+        cell: (ctx: any) => {
+          const pr: Row = ctx.row.original;
+          return (
+            <div className="min-w-0">
+              <a
+                href={pr.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block truncate font-medium hover:underline"
+                title={pr.title}
+              >
+                {pr.title}
+              </a>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                {pr.repository.slug} · #{pr.id}
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: "author",
+        accessorFn: (row: Row) => row.author.displayName,
+        header: "Autor",
+        cell: (ctx: any) => {
+          const pr: Row = ctx.row.original;
+          const initial = pr.author.displayName.trim().slice(0, 1).toUpperCase();
+          return (
+            <div className="flex items-center gap-2">
+              <Avatar className="h-7 w-7">
+                {pr.author.avatarUrl ? (
+                  <AvatarImage src={pr.author.avatarUrl} alt={pr.author.displayName} />
+                ) : null}
+                <AvatarFallback>{initial}</AvatarFallback>
+              </Avatar>
+              <span className="truncate">{pr.author.displayName}</span>
+            </div>
+          );
+        },
+      },
+      {
+        id: "approvals",
+        accessorFn: (row: Row) => row.approvals,
+        header: "Aprov.",
+        cell: (ctx: any) => {
+          const pr: Row = ctx.row.original;
+          const ok = pr.approvals >= pr.minApprovals;
+          return (
+            <Badge
+              variant={(ok ? "success-light" : "secondary") as any}
+              size="default"
+              radius="full"
+            >
+              {pr.approvals}/{pr.minApprovals}
+            </Badge>
+          );
+        },
+      },
+      {
+        id: "state",
+        accessorFn: (row: Row) => row.reviewState,
+        header: "Estado",
+        cell: (ctx: any) => {
+          const pr: Row = ctx.row.original;
+          const variant = stateBadgeVariant(pr.reviewState);
+          return (
+            <Badge variant={variant as any} radius="full">
+              {stateLabel(pr.reviewState)}
+            </Badge>
+          );
+        },
+      },
+    ];
   }, []);
 
-  const effectiveNowMs = nowMs ?? prsQ.data?.generatedAtMs ?? 0;
-  const lastUpdatedSec = prsQ.data
-    ? Math.max(0, Math.floor((effectiveNowMs - prsQ.data.generatedAtMs) / 1000))
-    : null;
+  const table = useTable({
+    features: dataGridFeatures,
+    data: filtered,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+  });
+
+  const fetchedAt = prsQ.data?.fetchedAt ? new Date(prsQ.data.fetchedAt) : null;
+  const updatedAgo = fetchedAt ? ageLabel(fetchedAt.toISOString()) : "—";
 
   const hasConfig = monitoredRepos.length > 0;
 
@@ -103,19 +376,20 @@ export function PullRequestsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Pull Requests abertos
-          </h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Centralize seus CRs abertos e evite que se percam no chat.
+          <h1 className="text-xl font-semibold tracking-tight">Fila de CRs</h1>
+          <p className="text-sm text-muted-foreground">
+            Pull Requests abertos dos usuários monitorados.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            {lastUpdatedSec === null
-              ? "Ainda não atualizado"
-              : `Última atualização há ${lastUpdatedSec}s`}
-          </div>
+          <Tooltip>
+            <TooltipTrigger className="text-xs text-muted-foreground">
+              Atualizado: {updatedAgo}
+            </TooltipTrigger>
+            <TooltipContent>
+              {fetchedAt ? fetchedAt.toLocaleString("pt-BR") : "Sem atualização"}
+            </TooltipContent>
+          </Tooltip>
           <button
             onClick={() => void refreshNow()}
             className="inline-flex h-9 items-center justify-center rounded-md bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
@@ -126,162 +400,101 @@ export function PullRequestsPage() {
         </div>
       </div>
 
-      {!hasConfig && (
-        <div className="rounded-lg border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-          Você ainda não selecionou repositórios para monitorar. Vá em{" "}
-          <Link href="/config" className="font-medium underline">
-            Configuração
-          </Link>{" "}
-          para começar.
-        </div>
-      )}
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">
-            Time/Squad
-          </span>
-          <select
-            value={selectedSquadId ?? ""}
-            onChange={(e) =>
-              setSelectedSquadId(e.target.value ? Number(e.target.value) : null)
-            }
-            className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-800 dark:bg-zinc-900"
-          >
-            <option value="">Todos</option>
-            {squads.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">
-            Repositório
-          </span>
-          <select
-            value={selectedRepoSlug ?? ""}
-            onChange={(e) => setSelectedRepoSlug(e.target.value || null)}
-            className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-800 dark:bg-zinc-900"
-          >
-            <option value="">Todos</option>
-            {monitoredRepos.map((r) => (
-              <option key={r.slug} value={r.slug}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            Intervalo de atualização
-          </div>
-          <div className="mt-0.5 font-medium">{refreshIntervalSec}s</div>
-          <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            Configure em{" "}
+      {!hasConfig ? (
+        <Alert variant="warning">
+          <AlertTitle>Configuração incompleta</AlertTitle>
+          <AlertDescription>
+            Nenhum repositório monitorado ainda. Vá em{" "}
             <Link href="/config" className="underline">
-              /config
-            </Link>
-            .
-          </div>
-        </div>
-      </div>
+              Configuração
+            </Link>{" "}
+            para sincronizar e selecionar.
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {prsQ.data?.rateLimit?.retryAfterSeconds ? (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-50">
-          Limite da API atingido, nova tentativa em{" "}
-          <span className="font-medium">
-            {prsQ.data.rateLimit.retryAfterSeconds}s
-          </span>
-          .
-        </div>
+        <Alert variant="warning">
+          <AlertTitle>Limite da API atingido</AlertTitle>
+          <AlertDescription>
+            Nova tentativa em {prsQ.data.rateLimit.retryAfterSeconds}s.
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {prsQ.data?.errors?.length ? (
-        <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="font-medium">Falhas por repositório</div>
-          <ul className="mt-2 list-disc pl-5 text-zinc-600 dark:text-zinc-300">
-            {prsQ.data.errors.map((e) => (
-              <li key={e.repoSlug}>
-                <span className="font-medium">{e.repoSlug}</span>: {e.message}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <Alert variant="destructive">
+          <AlertTitle>Falhas por repositório</AlertTitle>
+          <AlertDescription>
+            {prsQ.data.errors
+              .map(
+                (e) =>
+                  `${e.repositorySlug}${e.status ? ` (${e.status})` : ""}`,
+              )
+              .join(", ")}
+          </AlertDescription>
+        </Alert>
       ) : null}
 
-      <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="border-b border-zinc-200 px-4 py-3 text-sm font-medium dark:border-zinc-800">
-          {sorted.length === 0
-            ? "Nenhum PR aberto encontrado"
-            : `${sorted.length} PR(s) aberto(s)`}
+      <div className="grid gap-3 sm:grid-cols-4">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-xs text-muted-foreground">Time</span>
+          <select
+            value={selectedTeamId ?? ""}
+            onChange={(e) =>
+              setSelectedTeamId(e.target.value ? Number(e.target.value) : null)
+            }
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          >
+            <option value="">Todos</option>
+            {(teamsQ.data?.teams ?? []).map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="sm:col-span-2">
+          <div className="mb-1 text-xs text-muted-foreground">Filtros</div>
+          <Filters
+            fields={filterFields as any}
+            query={filtersQuery as any}
+            onQueryChange={(q) => setFiltersQuery(q as any)}
+            showClear
+            size="sm"
+          />
         </div>
-        <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
-          {sorted.map((pr) => {
-            const ms = ageMs(pr.createdOn, effectiveNowMs);
-            const age = formatAgePtBR(ms);
-            const { approvals, changesRequested } = summarizeReviewState(
-              pr.participants,
-            );
-            const over24h = ms >= 24 * 60 * 60 * 1000;
-            const over72h = ms >= 72 * 60 * 60 * 1000;
-            const accent = over72h
-              ? "border-l-4 border-red-500"
-              : over24h
-                ? "border-l-4 border-amber-500"
-                : "border-l-4 border-transparent";
 
-            return (
-              <li key={`${pr.repoSlug}-${pr.id}`} className={`px-4 py-3 ${accent}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <a
-                      href={pr.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block truncate font-medium hover:underline"
-                      title={pr.title}
-                    >
-                      {pr.title}
-                    </a>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
-                      <span className="rounded bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800">
-                        {pr.repoName}
-                      </span>
-                      <span>{age}</span>
-                      <span>
-                        {approvals} aprovação(ões)
-                        {changesRequested ? " • changes requested" : ""}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {pr.author.avatarUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={pr.author.avatarUrl}
-                        alt={pr.author.displayName ?? pr.author.nickname ?? "Autor"}
-                        className="h-8 w-8 rounded-full border border-zinc-200 dark:border-zinc-700"
-                      />
-                    ) : (
-                      <div className="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-700" />
-                    )}
-                    <div className="text-right text-xs">
-                      <div className="font-medium">
-                        {pr.author.displayName ?? pr.author.nickname ?? pr.author.uuid}
-                      </div>
-                      <div className="text-zinc-500 dark:text-zinc-400">
-                        autor
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="rounded-lg border border-border bg-background p-3 text-sm sm:col-span-1">
+          <div className="text-xs text-muted-foreground">Resumo</div>
+          <div className="mt-0.5 font-medium">
+            {filtered.length} abertos ·{" "}
+            <span className="text-warning-foreground">{summary.over24}</span>{" "}
+            &gt; 24h ·{" "}
+            <span className="text-destructive">{summary.over72}</span> &gt; 72h
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            Polling: {pollIntervalSeconds}s
+          </div>
+        </div>
       </div>
+
+      <DataGrid
+        table={table as any}
+        recordCount={filtered.length}
+        isLoading={prsQ.isLoading || prsQ.isFetching}
+        tableLayout={{
+          dense: true,
+          rowBorder: true,
+          headerSticky: false,
+          headerBorder: true,
+          width: "fixed",
+        }}
+      >
+        <DataGridContainer className="rounded-lg border border-border bg-background">
+          <DataGridTable />
+        </DataGridContainer>
+      </DataGrid>
     </div>
   );
 }

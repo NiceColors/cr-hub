@@ -1,52 +1,104 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import { toast } from "sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
+  Frame,
+  FramePanel,
+  FrameHeader,
+  FrameTitle,
+  FrameDescription,
+} from "@/components/reui/frame";
+import { Alert, AlertDescription, AlertTitle } from "@/components/reui/alert";
+import { Badge } from "@/components/reui/badge";
+import {
+  DataGrid,
+  DataGridContainer,
+  dataGridFeatures,
+} from "@/components/reui/data-grid/data-grid";
+import { DataGridTable } from "@/components/reui/data-grid/data-grid-table";
+import { useTable, type ColumnDef } from "@tanstack/react-table";
 
-const bitbucketReposSchema = z.object({
-  repos: z.array(z.object({ slug: z.string(), name: z.string() })),
-});
-const configReposSchema = z.object({
-  repos: z.array(z.object({ slug: z.string(), name: z.string() })),
+const reposSchema = z.object({
+  repositories: z.array(
+    z.object({
+      uuid: z.string(),
+      slug: z.string(),
+      name: z.string(),
+      monitored: z.boolean(),
+      minApprovals: z.number(),
+    }),
+  ),
 });
 
-const bitbucketMembersSchema = z.object({
-  forbidden: z.boolean(),
+const membersSchema = z.object({
   members: z.array(
     z.object({
       uuid: z.string(),
-      nickname: z.string().nullable().optional(),
-      displayName: z.string().nullable().optional(),
-      avatarUrl: z.string().nullable().optional(),
+      nickname: z.string().nullable(),
+      displayName: z.string(),
+      avatarUrl: z.string().nullable(),
+      monitored: z.boolean(),
+      source: z.string(),
     }),
   ),
 });
 
-const configMembersSchema = z.object({
-  users: z.array(
-    z.object({
-      uuid: z.string(),
-      nickname: z.string().nullable().optional(),
-      displayName: z.string().nullable().optional(),
-      avatarUrl: z.string().nullable().optional(),
-    }),
-  ),
-});
-
-const squadsSchema = z.object({
-  squads: z.array(
+const teamsSchema = z.object({
+  teams: z.array(
     z.object({
       id: z.number(),
       name: z.string(),
+      createdAt: z.number(),
       memberUuids: z.array(z.string()),
-      repoFilterSlugs: z.array(z.string()),
+      repositoryUuids: z.array(z.string()),
     }),
   ),
 });
 
-const settingsSchema = z.object({ refreshIntervalSec: z.number() });
-const requestStatsSchema = z.object({ requestsLastHour: z.number() });
+const settingsSchema = z.object({ pollIntervalSeconds: z.number() });
+const statusSchema = z.object({
+  tokenValid: z.boolean(),
+  requestsLastHour: z.number(),
+  retryAfterSeconds: z.number().optional(),
+  error: z
+    .object({
+      code: z.string(),
+      message: z.string(),
+    })
+    .optional(),
+});
+
+const syncReposRespSchema = z.object({
+  total: z.number(),
+  added: z.number(),
+  updated: z.number(),
+});
+
+const syncMembersRespSchema = z.union([
+  z.object({ forbidden: z.literal(true) }),
+  z.object({
+    forbidden: z.literal(false),
+    total: z.number(),
+    added: z.number(),
+    updated: z.number(),
+  }),
+]);
 
 async function fetchJson<T>(url: string, schema: z.ZodType<T>): Promise<T> {
   const res = await fetch(url);
@@ -58,539 +110,557 @@ async function fetchJson<T>(url: string, schema: z.ZodType<T>): Promise<T> {
 
 export function ConfigPage() {
   const qc = useQueryClient();
-  const [saving, setSaving] = useState(false);
+  const [membersForbidden, setMembersForbidden] = useState(false);
 
-  const bbReposQ = useQuery({
-    queryKey: ["bb-repos"],
-    queryFn: () => fetchJson("/api/bitbucket/repos", bitbucketReposSchema),
+  const reposQ = useQuery({
+    queryKey: ["cfg-repositories"],
+    queryFn: () => fetchJson("/api/config/repositories", reposSchema),
   });
-  const cfgReposQ = useQuery({
-    queryKey: ["cfg-repos"],
-    queryFn: () => fetchJson("/api/config/repos", configReposSchema),
-  });
-
-  const bbMembersQ = useQuery({
-    queryKey: ["bb-members"],
-    queryFn: () => fetchJson("/api/bitbucket/members", bitbucketMembersSchema),
-  });
-  const cfgMembersQ = useQuery({
+  const membersQ = useQuery({
     queryKey: ["cfg-members"],
-    queryFn: () => fetchJson("/api/config/members", configMembersSchema),
+    queryFn: () => fetchJson("/api/config/members", membersSchema),
   });
-
-  const squadsQ = useQuery({
-    queryKey: ["cfg-squads"],
-    queryFn: () => fetchJson("/api/config/squads", squadsSchema),
+  const teamsQ = useQuery({
+    queryKey: ["cfg-teams"],
+    queryFn: () => fetchJson("/api/config/teams", teamsSchema),
   });
-
   const settingsQ = useQuery({
     queryKey: ["cfg-settings"],
     queryFn: () => fetchJson("/api/config/settings", settingsSchema),
   });
-
-  const statsQ = useQuery({
-    queryKey: ["request-stats"],
-    queryFn: () => fetchJson("/api/config/request-stats", requestStatsSchema),
+  const statusQ = useQuery({
+    queryKey: ["status"],
+    queryFn: () => fetchJson("/api/status", statusSchema),
     refetchInterval: 10_000,
   });
 
-  const monitoredRepoSlugs = new Set((cfgReposQ.data?.repos ?? []).map((r) => r.slug));
-  const monitoredUserUuids = new Set((cfgMembersQ.data?.users ?? []).map((u) => u.uuid));
+  const repos = reposQ.data?.repositories ?? [];
+  const members = membersQ.data?.members ?? [];
+  const teams = teamsQ.data?.teams ?? [];
+  const poll = settingsQ.data?.pollIntervalSeconds ?? 30;
 
-  const [repoSelection, setRepoSelection] = useState<Record<string, boolean>>({});
-  const [memberSelection, setMemberSelection] = useState<Record<string, boolean>>({});
+  const monitoredReposCount = repos.filter((r) => r.monitored).length;
+  const monitoredMembersCount = members.filter((m) => m.monitored).length;
 
-  const repos = bbReposQ.data?.repos ?? [];
-  const members = bbMembersQ.data?.members ?? [];
+  const syncRepos = async () => {
+    const res = await fetch("/api/bitbucket/repositories/sync", { method: "POST" });
+    const json = await res.json();
+    const parsed = syncReposRespSchema.safeParse(json);
+    if (!parsed.success) throw new Error("Falha ao sincronizar repositórios.");
+    toast.success(`Repositórios sincronizados: ${parsed.data.total}`);
+    await qc.invalidateQueries({ queryKey: ["cfg-repositories"] });
+  };
 
-  useEffect(() => {
-    if (!repos.length) return;
-    setRepoSelection((prev) => {
-      const next: Record<string, boolean> = { ...prev };
-      for (const r of repos) {
-        if (next[r.slug] === undefined) next[r.slug] = monitoredRepoSlugs.has(r.slug);
-      }
-      return next;
+  const syncMembers = async () => {
+    const res = await fetch("/api/bitbucket/members/sync", { method: "POST" });
+    const json = await res.json();
+    const parsed = syncMembersRespSchema.safeParse(json);
+    if (!parsed.success) throw new Error("Falha ao sincronizar membros.");
+    if (parsed.data.forbidden) {
+      setMembersForbidden(true);
+      toast.warning("Token não pode listar membros do workspace (403).");
+      return;
+    }
+    setMembersForbidden(false);
+    toast.success(`Membros sincronizados: ${parsed.data.total}`);
+    await qc.invalidateQueries({ queryKey: ["cfg-members"] });
+  };
+
+  const setPoll = async (sec: number) => {
+    const parsed = z.union([z.literal(30), z.literal(60), z.literal(120)]).safeParse(sec);
+    if (!parsed.success) return;
+    await fetch("/api/config/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pollIntervalSeconds: parsed.data }),
     });
-  }, [repos, cfgReposQ.data?.repos]);
+    toast.success("Intervalo de atualização salvo.");
+    await qc.invalidateQueries({ queryKey: ["cfg-settings"] });
+  };
 
-  useEffect(() => {
-    if (!members.length) return;
-    setMemberSelection((prev) => {
-      const next: Record<string, boolean> = { ...prev };
-      for (const m of members) {
-        if (next[m.uuid] === undefined) next[m.uuid] = monitoredUserUuids.has(m.uuid);
-      }
-      return next;
-    });
-  }, [members, cfgMembersQ.data?.users]);
+  type RepoRow = (typeof repos)[number];
+  const repoColumns = useMemo<ColumnDef<typeof dataGridFeatures, RepoRow>[]>(
+    () => [
+      {
+        id: "monitored",
+        header: "Monitorar",
+        accessorFn: (r: RepoRow) => r.monitored,
+        cell: (ctx: any) => {
+          const r: RepoRow = ctx.row.original;
+          return (
+            <Checkbox
+              checked={r.monitored}
+              onCheckedChange={async (checked) => {
+                await fetch(`/api/config/repositories/${r.uuid}`, {
+                  method: "PATCH",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ monitored: Boolean(checked) }),
+                });
+                await qc.invalidateQueries({ queryKey: ["cfg-repositories"] });
+              }}
+            />
+          );
+        },
+      },
+      {
+        id: "name",
+        header: "Repositório",
+        accessorFn: (r: RepoRow) => r.name,
+        cell: (ctx: any) => {
+          const r: RepoRow = ctx.row.original;
+          return (
+            <div className="min-w-0">
+              <div className="truncate font-medium">{r.name}</div>
+              <div className="text-xs text-muted-foreground">{r.slug}</div>
+            </div>
+          );
+        },
+      },
+      {
+        id: "minApprovals",
+        header: "Min. aprovações",
+        accessorFn: (r: RepoRow) => r.minApprovals,
+        cell: (ctx: any) => {
+          const r: RepoRow = ctx.row.original;
+          return (
+            <Input
+              type="number"
+              min={0}
+              max={20}
+              className="h-8 w-20"
+              value={r.minApprovals}
+              onChange={async (e) => {
+                const value = Number(e.target.value);
+                if (!Number.isFinite(value)) return;
+                await fetch(`/api/config/repositories/${r.uuid}`, {
+                  method: "PATCH",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ minApprovals: value }),
+                });
+                await qc.invalidateQueries({ queryKey: ["cfg-repositories"] });
+              }}
+            />
+          );
+        },
+      },
+    ],
+    [qc],
+  );
+
+  const repoTable = useTable({
+    features: dataGridFeatures,
+    data: repos,
+    columns: repoColumns,
+  });
+
+  type MemberRow = (typeof members)[number];
+  const memberColumns = useMemo<ColumnDef<typeof dataGridFeatures, MemberRow>[]>(
+    () => [
+      {
+        id: "monitored",
+        header: "Monitorar",
+        accessorFn: (m: MemberRow) => m.monitored,
+        cell: (ctx: any) => {
+          const m: MemberRow = ctx.row.original;
+          return (
+            <Checkbox
+              checked={m.monitored}
+              onCheckedChange={async (checked) => {
+                await fetch(`/api/config/members/${m.uuid}`, {
+                  method: "PATCH",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ monitored: Boolean(checked) }),
+                });
+                await qc.invalidateQueries({ queryKey: ["cfg-members"] });
+              }}
+            />
+          );
+        },
+      },
+      {
+        id: "displayName",
+        header: "Membro",
+        accessorFn: (m: MemberRow) => m.displayName,
+        cell: (ctx: any) => {
+          const m: MemberRow = ctx.row.original;
+          return (
+            <div className="min-w-0">
+              <div className="truncate font-medium">{m.displayName}</div>
+              <div className="text-xs text-muted-foreground">{m.uuid}</div>
+            </div>
+          );
+        },
+      },
+      {
+        id: "source",
+        header: "Origem",
+        accessorFn: (m: MemberRow) => m.source,
+        cell: (ctx: any) => {
+          const m: MemberRow = ctx.row.original;
+          return (
+            <Badge variant={(m.source === "manual" ? "warning-light" : "secondary") as any} radius="full">
+              {m.source}
+            </Badge>
+          );
+        },
+      },
+    ],
+    [qc],
+  );
+
+  const memberTable = useTable({
+    features: dataGridFeatures,
+    data: members,
+    columns: memberColumns,
+  });
 
   const [manualUuid, setManualUuid] = useState("");
   const [manualNickname, setManualNickname] = useState("");
-
-  const [newSquadName, setNewSquadName] = useState("");
-  const [selectedSquadId, setSelectedSquadId] = useState<number | null>(null);
-
-  const selectedSquad = (squadsQ.data?.squads ?? []).find((s) => s.id === selectedSquadId) ?? null;
-  const [editSquadName, setEditSquadName] = useState("");
-  const [editSquadMembers, setEditSquadMembers] = useState<string[]>([]);
-  const [editSquadRepos, setEditSquadRepos] = useState<string[]>([]);
-
-  const monitoredUsers = cfgMembersQ.data?.users ?? [];
-  const monitoredRepos = cfgReposQ.data?.repos ?? [];
-
-  const refreshIntervalSec = settingsQ.data?.refreshIntervalSec ?? 30;
-
-  const saveRepos = async () => {
-    const selected = repos.filter((r) => repoSelection[r.slug]);
-    setSaving(true);
-    try {
-      await fetch("/api/config/repos", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repos: selected }),
-      });
-      await qc.invalidateQueries({ queryKey: ["cfg-repos"] });
-      await qc.invalidateQueries({ queryKey: ["config-repos"] });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveMembers = async (users: typeof monitoredUsers) => {
-    setSaving(true);
-    try {
-      await fetch("/api/config/members", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ users }),
-      });
-      await qc.invalidateQueries({ queryKey: ["cfg-members"] });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const onSaveSelectedMembers = async () => {
-    const selectedFromBb = members
-      .filter((m) => memberSelection[m.uuid])
-      .map((m) => ({
-        uuid: m.uuid,
-        nickname: m.nickname ?? null,
-        displayName: m.displayName ?? null,
-        avatarUrl: m.avatarUrl ?? null,
-      }));
-
-    // mantém também os usuários que já estavam monitorados (incl. manuais) e não existem na lista do endpoint
-    const keepManual = monitoredUsers.filter((u) => !members.some((m) => m.uuid === u.uuid));
-    await saveMembers([...selectedFromBb, ...keepManual]);
-  };
-
-  const addManualMember = async () => {
-    const schema = z.object({
-      uuid: z.string().min(1),
-      nickname: z.string().optional(),
+  const addManual = async () => {
+    const uuid = manualUuid.trim();
+    if (!uuid) return;
+    await fetch("/api/config/members", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ uuid, nickname: manualNickname.trim() || null }),
     });
-    const parsed = schema.safeParse({ uuid: manualUuid.trim(), nickname: manualNickname.trim() || undefined });
-    if (!parsed.success) return;
-
-    const next = [
-      ...monitoredUsers.filter((u) => u.uuid !== parsed.data.uuid),
-      { uuid: parsed.data.uuid, nickname: parsed.data.nickname ?? null, displayName: null, avatarUrl: null },
-    ];
-    await saveMembers(next);
+    toast.success("Membro adicionado.");
     setManualUuid("");
     setManualNickname("");
+    await qc.invalidateQueries({ queryKey: ["cfg-members"] });
   };
 
-  const saveSettings = async (sec: number) => {
-    const schema = z.union([z.literal(30), z.literal(60), z.literal(120)]);
-    const parsed = schema.safeParse(sec);
-    if (!parsed.success) return;
-    setSaving(true);
-    try {
-      await fetch("/api/config/settings", {
+  // Teams (CRUD)
+  const [teamDialogOpen, setTeamDialogOpen] = useState(false);
+  const [editingTeamId, setEditingTeamId] = useState<number | null>(null);
+  const editingTeam = teams.find((t) => t.id === editingTeamId) ?? null;
+  const [teamName, setTeamName] = useState("");
+  const [teamMembers, setTeamMembers] = useState<string[]>([]);
+  const [teamRepos, setTeamRepos] = useState<string[]>([]);
+
+  const openCreateTeam = () => {
+    setEditingTeamId(null);
+    setTeamName("");
+    setTeamMembers([]);
+    setTeamRepos([]);
+    setTeamDialogOpen(true);
+  };
+  const openEditTeam = (id: number) => {
+    const t = teams.find((x) => x.id === id);
+    if (!t) return;
+    setEditingTeamId(id);
+    setTeamName(t.name);
+    setTeamMembers([...t.memberUuids]);
+    setTeamRepos([...t.repositoryUuids]);
+    setTeamDialogOpen(true);
+  };
+
+  const saveTeam = async () => {
+    const payload = {
+      name: teamName.trim() || "Sem nome",
+      memberUuids: teamMembers,
+      repositoryUuids: teamRepos,
+    };
+    if (editingTeamId) {
+      await fetch(`/api/config/teams/${editingTeamId}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ refreshIntervalSec: parsed.data }),
+        body: JSON.stringify(payload),
       });
-      await qc.invalidateQueries({ queryKey: ["cfg-settings"] });
-      await qc.invalidateQueries({ queryKey: ["config-settings"] });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const createSquad = async () => {
-    const name = newSquadName.trim();
-    if (!name) return;
-    setSaving(true);
-    try {
-      await fetch("/api/config/squads", {
+      toast.success("Time salvo.");
+    } else {
+      await fetch("/api/config/teams", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, memberUuids: [], repoFilterSlugs: [] }),
+        body: JSON.stringify(payload),
       });
-      setNewSquadName("");
-      await qc.invalidateQueries({ queryKey: ["cfg-squads"] });
-    } finally {
-      setSaving(false);
+      toast.success("Time criado.");
     }
+    setTeamDialogOpen(false);
+    await qc.invalidateQueries({ queryKey: ["cfg-teams"] });
   };
 
-  const startEditSquad = (id: number) => {
-    setSelectedSquadId(id);
-    const s = (squadsQ.data?.squads ?? []).find((x) => x.id === id);
-    if (!s) return;
-    setEditSquadName(s.name);
-    setEditSquadMembers([...s.memberUuids]);
-    setEditSquadRepos([...s.repoFilterSlugs]);
+  const deleteTeam = async () => {
+    if (!editingTeamId) return;
+    await fetch(`/api/config/teams/${editingTeamId}`, { method: "DELETE" });
+    toast.success("Time excluído.");
+    setTeamDialogOpen(false);
+    await qc.invalidateQueries({ queryKey: ["cfg-teams"] });
   };
 
-  const saveSquadEdits = async () => {
-    if (!selectedSquad) return;
-    setSaving(true);
-    try {
-      await fetch(`/api/config/squads/${selectedSquad.id}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          name: editSquadName.trim() || selectedSquad.name,
-          memberUuids: editSquadMembers,
-          repoFilterSlugs: editSquadRepos,
-        }),
-      });
-      await qc.invalidateQueries({ queryKey: ["cfg-squads"] });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteSquad = async () => {
-    if (!selectedSquad) return;
-    setSaving(true);
-    try {
-      await fetch(`/api/config/squads/${selectedSquad.id}`, { method: "DELETE" });
-      setSelectedSquadId(null);
-      await qc.invalidateQueries({ queryKey: ["cfg-squads"] });
-    } finally {
-      setSaving(false);
-    }
-  };
+  const monitoredRepos = useMemo(
+    () => repos.filter((r) => r.monitored),
+    [repos],
+  );
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Configuração</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Selecione repositórios e usuários monitorados, defina squads e o intervalo de atualização.
+        <p className="text-sm text-muted-foreground">
+          Repositórios, membros, times e intervalo de atualização.
         </p>
       </div>
 
-      <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-medium">Rate limit</div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              Requests feitas na última hora (contagem local).
-            </div>
-          </div>
-          <div className="text-2xl font-semibold tabular-nums">
-            {statsQ.data?.requestsLastHour ?? "—"}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium">Intervalo de atualização</div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              Usado no polling automático e no TTL do cache do servidor.
-            </div>
-          </div>
-          <select
-            value={String(refreshIntervalSec)}
-            onChange={(e) => void saveSettings(Number(e.target.value))}
-            className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-800 dark:bg-zinc-950"
-            disabled={saving}
-          >
-            <option value="30">30s</option>
-            <option value="60">60s</option>
-            <option value="120">120s</option>
-          </select>
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-medium">Repositórios monitorados</div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              Fonte: Bitbucket (workspace). Selecione os repositórios que entram na busca de PRs.
-            </div>
-          </div>
-          <button
-            className="h-9 rounded-md bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-            onClick={() => void saveRepos()}
-            disabled={saving}
-          >
-            Salvar
-          </button>
-        </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {repos.map((r) => (
-            <label key={r.slug} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={Boolean(repoSelection[r.slug])}
-                onChange={(e) =>
-                  setRepoSelection((s) => ({ ...s, [r.slug]: e.target.checked }))
-                }
-              />
-              <span className="truncate" title={r.slug}>
-                {r.name} <span className="text-xs text-zinc-500">({r.slug})</span>
+      <Frame spacing="sm">
+        <FramePanel>
+          <FrameHeader>
+            <FrameTitle>Status</FrameTitle>
+            <FrameDescription>
+              Token válido:{" "}
+              <span className={statusQ.data?.tokenValid ? "text-success" : "text-destructive"}>
+                {statusQ.data?.tokenValid ? "sim" : "não"}
               </span>
-            </label>
-          ))}
-          {bbReposQ.isLoading ? (
-            <div className="text-sm text-zinc-500">Carregando…</div>
-          ) : null}
-          {bbReposQ.isError ? (
-            <div className="text-sm text-red-600">
-              Falha ao carregar repositórios.
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-medium">Usuários monitorados</div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              Fonte: membros do workspace. Se o endpoint retornar 403, você pode cadastrar manualmente.
-            </div>
-          </div>
-          <button
-            className="h-9 rounded-md bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-            onClick={() => void onSaveSelectedMembers()}
-            disabled={saving || bbMembersQ.data?.forbidden === true}
-            title={bbMembersQ.data?.forbidden ? "Endpoint de membros bloqueado (403)" : undefined}
-          >
-            Salvar
-          </button>
-        </div>
-
-        {bbMembersQ.data?.forbidden ? (
-          <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-50">
-            O Bitbucket retornou 403 ao listar membros do workspace. Cadastre manualmente por UUID (obrigatório) e nickname (opcional).
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <input
-                value={manualUuid}
-                onChange={(e) => setManualUuid(e.target.value)}
-                placeholder='UUID (ex: "{...}")'
-                className="h-10 flex-1 rounded-md border border-amber-300 bg-white px-3 text-sm dark:border-amber-800/60 dark:bg-zinc-950"
-              />
-              <input
-                value={manualNickname}
-                onChange={(e) => setManualNickname(e.target.value)}
-                placeholder="Nickname (opcional)"
-                className="h-10 flex-1 rounded-md border border-amber-300 bg-white px-3 text-sm dark:border-amber-800/60 dark:bg-zinc-950"
-              />
-              <button
-                onClick={() => void addManualMember()}
-                className="h-10 rounded-md bg-amber-600 px-3 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
-                disabled={saving}
-              >
-                Adicionar
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {!bbMembersQ.data?.forbidden ? (
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {members.map((m) => (
-              <label key={m.uuid} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={Boolean(memberSelection[m.uuid])}
-                  onChange={(e) =>
-                    setMemberSelection((s) => ({ ...s, [m.uuid]: e.target.checked }))
-                  }
-                />
-                <span className="truncate" title={m.uuid}>
-                  {m.displayName ?? m.nickname ?? m.uuid}
-                </span>
-              </label>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="mt-4">
-          <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-            Atualmente monitorados ({monitoredUsers.length})
-          </div>
-          <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
-            {monitoredUsers.map((u) => (
-              <li key={u.uuid} className="truncate text-zinc-700 dark:text-zinc-200" title={u.uuid}>
-                {u.displayName ?? u.nickname ?? u.uuid}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="text-sm font-medium">Times / Squads</div>
-        <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Um squad tem nome, membros (N:N) e filtro opcional de repositórios. Se o filtro estiver vazio, o squad considera todos os repos monitorados.
-        </div>
-
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <input
-            value={newSquadName}
-            onChange={(e) => setNewSquadName(e.target.value)}
-            placeholder="Nome do novo squad"
-            className="h-10 flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-800 dark:bg-zinc-950"
-          />
-          <button
-            onClick={() => void createSquad()}
-            className="h-10 rounded-md bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-            disabled={saving}
-          >
-            Criar
-          </button>
-        </div>
-
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-            <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Squads</div>
-            <ul className="mt-2 flex flex-col gap-1">
-              {(squadsQ.data?.squads ?? []).map((s) => (
-                <li key={s.id}>
-                  <button
-                    className={`w-full rounded px-2 py-1 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
-                      selectedSquadId === s.id ? "bg-zinc-100 dark:bg-zinc-800" : ""
-                    }`}
-                    onClick={() => startEditSquad(s.id)}
-                  >
-                    {s.name}
-                  </button>
-                </li>
-              ))}
-              {squadsQ.isLoading ? (
-                <li className="text-sm text-zinc-500">Carregando…</li>
+              {" · "}
+              Requests/h: {statusQ.data?.requestsLastHour ?? "—"}
+              {statusQ.data?.retryAfterSeconds ? (
+                <>
+                  {" · "}Rate limit: {statusQ.data.retryAfterSeconds}s
+                </>
               ) : null}
-            </ul>
+            </FrameDescription>
+          </FrameHeader>
+        </FramePanel>
+        {statusQ.data?.error ? (
+          <FramePanel>
+            <Alert variant="destructive">
+              <AlertTitle>{statusQ.data.error.code}</AlertTitle>
+              <AlertDescription>{statusQ.data.error.message}</AlertDescription>
+            </Alert>
+          </FramePanel>
+        ) : null}
+      </Frame>
+
+      <Tabs defaultValue="repos" className="w-full">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="repos">Repositórios</TabsTrigger>
+          <TabsTrigger value="members">Membros</TabsTrigger>
+          <TabsTrigger value="teams">Times</TabsTrigger>
+          <TabsTrigger value="update">Atualização</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="repos" className="mt-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium">Repositórios do workspace</div>
+              <div className="text-xs text-muted-foreground">
+                {monitoredReposCount} monitorado(s) de {repos.length}
+              </div>
+            </div>
+            <Button onClick={() => void syncRepos()} variant="secondary">
+              Sincronizar lista
+            </Button>
           </div>
 
-          <div className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-            <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Editar</div>
-            {selectedSquad ? (
-              <div className="mt-2 flex flex-col gap-3">
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">Nome</span>
-                  <input
-                    value={editSquadName}
-                    onChange={(e) => setEditSquadName(e.target.value)}
-                    className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-800 dark:bg-zinc-950"
-                  />
-                </label>
+          <div className="mt-3">
+            <DataGrid table={repoTable as any} recordCount={repos.length} tableLayout={{ dense: true, rowBorder: true, width: "fixed" }}>
+              <DataGridContainer className="rounded-lg border border-border bg-background">
+                <DataGridTable />
+              </DataGridContainer>
+            </DataGrid>
+          </div>
+        </TabsContent>
 
+        <TabsContent value="members" className="mt-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium">Membros do workspace</div>
+              <div className="text-xs text-muted-foreground">
+                {monitoredMembersCount} monitorado(s) de {members.length}
+              </div>
+            </div>
+            <Button onClick={() => void syncMembers()} variant="secondary">
+              Sincronizar lista
+            </Button>
+          </div>
+
+          {membersForbidden ? (
+            <div className="mt-3">
+              <Alert variant="warning">
+                <AlertTitle>Permissão insuficiente (403)</AlertTitle>
+                <AlertDescription>
+                  Seu token não pode listar membros do workspace. Cadastre manualmente por UUID ou nickname.
+                </AlertDescription>
+              </Alert>
+            </div>
+          ) : null}
+
+          <div className="mt-3">
+            <DataGrid table={memberTable as any} recordCount={members.length} tableLayout={{ dense: true, rowBorder: true, width: "fixed" }}>
+              <DataGridContainer className="rounded-lg border border-border bg-background">
+                <DataGridTable />
+              </DataGridContainer>
+            </DataGrid>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <Label>UUID</Label>
+              <Input value={manualUuid} onChange={(e) => setManualUuid(e.target.value)} placeholder='"{...}"' />
+            </div>
+            <div className="flex-1">
+              <Label>Nickname (opcional)</Label>
+              <Input value={manualNickname} onChange={(e) => setManualNickname(e.target.value)} />
+            </div>
+            <Button onClick={() => void addManual()}>Adicionar</Button>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="teams" className="mt-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium">Times</div>
+              <div className="text-xs text-muted-foreground">
+                Times definem escopo por membros e, opcionalmente, por repositórios (vazio = todos os repos monitorados).
+              </div>
+            </div>
+            <Button onClick={openCreateTeam}>Novo time</Button>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {teams.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => openEditTeam(t.id)}
+                className="rounded-lg border border-border bg-background p-3 text-left hover:bg-muted/40"
+              >
+                <div className="text-sm font-medium">{t.name}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {t.memberUuids.length} membro(s) ·{" "}
+                  {t.repositoryUuids.length ? `${t.repositoryUuids.length} repo(s) filtrado(s)` : "todos os repos monitorados"}
+                </div>
+              </button>
+            ))}
+            {teams.length === 0 ? (
+              <div className="text-sm text-muted-foreground">Nenhum time cadastrado.</div>
+            ) : null}
+          </div>
+
+          <Dialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>{editingTeam ? "Editar time" : "Novo time"}</DialogTitle>
+              </DialogHeader>
+
+              <div className="grid gap-4">
                 <div>
-                  <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                    Membros
-                  </div>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    {monitoredUsers.map((u) => {
-                      const checked = editSquadMembers.includes(u.uuid);
+                  <Label>Nome</Label>
+                  <Input value={teamName} onChange={(e) => setTeamName(e.target.value)} />
+                </div>
+
+                <div className="grid gap-2">
+                  <div className="text-sm font-medium">Membros</div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {members.filter((m) => m.monitored).map((m) => {
+                      const checked = teamMembers.includes(m.uuid);
                       return (
-                        <label key={u.uuid} className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
+                        <label key={m.uuid} className="flex items-center gap-2 text-sm">
+                          <Checkbox
                             checked={checked}
-                            onChange={(e) => {
-                              setEditSquadMembers((prev) =>
-                                e.target.checked
-                                  ? [...prev, u.uuid]
-                                  : prev.filter((x) => x !== u.uuid),
-                              );
-                            }}
+                            onCheckedChange={(v) =>
+                              setTeamMembers((prev) =>
+                                v ? [...prev, m.uuid] : prev.filter((x) => x !== m.uuid),
+                              )
+                            }
                           />
-                          <span className="truncate" title={u.uuid}>
-                            {u.displayName ?? u.nickname ?? u.uuid}
-                          </span>
+                          <span className="truncate">{m.displayName}</span>
                         </label>
                       );
                     })}
                   </div>
+                  {members.filter((m) => m.monitored).length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      Nenhum membro monitorado ainda (aba Membros).
+                    </div>
+                  ) : null}
                 </div>
 
-                <div>
-                  <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                    Filtro de repositórios (opcional)
+                <div className="grid gap-2">
+                  <div className="text-sm font-medium">Filtro de repositórios (opcional)</div>
+                  <div className="text-xs text-muted-foreground">
+                    Se vazio, o time considera todos os repositórios monitorados.
                   </div>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <div className="grid gap-2 sm:grid-cols-2">
                     {monitoredRepos.map((r) => {
-                      const checked = editSquadRepos.includes(r.slug);
+                      const checked = teamRepos.includes(r.uuid);
                       return (
-                        <label key={r.slug} className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
+                        <label key={r.uuid} className="flex items-center gap-2 text-sm">
+                          <Checkbox
                             checked={checked}
-                            onChange={(e) => {
-                              setEditSquadRepos((prev) =>
-                                e.target.checked
-                                  ? [...prev, r.slug]
-                                  : prev.filter((x) => x !== r.slug),
-                              );
-                            }}
+                            onCheckedChange={(v) =>
+                              setTeamRepos((prev) =>
+                                v ? [...prev, r.uuid] : prev.filter((x) => x !== r.uuid),
+                              )
+                            }
                           />
-                          <span className="truncate" title={r.slug}>
-                            {r.name}
-                          </span>
+                          <span className="truncate">{r.name}</span>
                         </label>
                       );
                     })}
                   </div>
                 </div>
+              </div>
 
+              <DialogFooter className="flex items-center justify-between gap-2">
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => void saveSquadEdits()}
-                    className="h-10 flex-1 rounded-md bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-                    disabled={saving}
-                  >
-                    Salvar
-                  </button>
-                  <button
-                    onClick={() => void deleteSquad()}
-                    className="h-10 rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900/40 dark:bg-zinc-950 dark:text-red-300 dark:hover:bg-red-950/40"
-                    disabled={saving}
-                  >
-                    Excluir
-                  </button>
+                  {editingTeam ? (
+                    <Button variant="destructive" onClick={() => void deleteTeam()}>
+                      Excluir
+                    </Button>
+                  ) : null}
                 </div>
-              </div>
-            ) : (
-              <div className="mt-2 text-sm text-zinc-500">
-                Selecione um squad para editar.
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
+                <div className="flex gap-2">
+                  <Button variant="secondary" onClick={() => setTeamDialogOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={() => void saveTeam()}>Salvar</Button>
+                </div>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
 
-      <section className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-        <div className="font-medium text-zinc-900 dark:text-zinc-50">
-          Dica
-        </div>
-        <div className="mt-1">
-          O app busca PRs apenas via rotas do servidor (Route Handlers). O token do Bitbucket nunca vai para o browser.
-        </div>
-      </section>
+        <TabsContent value="update" className="mt-4">
+          <Frame spacing="sm">
+            <FramePanel>
+              <FrameHeader>
+                <FrameTitle>Intervalo de atualização</FrameTitle>
+                <FrameDescription>
+                  Usado no polling automático e no TTL do cache do servidor.
+                </FrameDescription>
+              </FrameHeader>
+              <div className="flex items-center justify-between gap-3 px-4 pb-4">
+                <div className="text-sm text-muted-foreground">
+                  Atual: <span className="font-medium">{poll}s</span>
+                </div>
+                <select
+                  value={String(poll)}
+                  onChange={(e) => void setPoll(Number(e.target.value))}
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="30">30s</option>
+                  <option value="60">60s</option>
+                  <option value="120">120s</option>
+                </select>
+              </div>
+            </FramePanel>
+            <FramePanel>
+              <FrameHeader>
+                <FrameTitle>Contadores</FrameTitle>
+                <FrameDescription>
+                  Requests feitas na última hora (janela deslizante em memória).
+                </FrameDescription>
+              </FrameHeader>
+              <div className="px-4 pb-4 text-sm">
+                Requests/h:{" "}
+                <span className="font-medium tabular-nums">
+                  {statusQ.data?.requestsLastHour ?? "—"}
+                </span>
+              </div>
+            </FramePanel>
+          </Frame>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

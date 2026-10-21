@@ -17,6 +17,7 @@ export const bitbucketUserSchema = z.object({
 });
 
 export const bitbucketRepoSchema = z.object({
+  uuid: z.string(),
   slug: z.string(),
   name: z.string(),
 });

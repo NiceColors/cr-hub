@@ -3,53 +3,53 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
-const pullRequestAuthorSchema = z.object({
-  uuid: z.string(),
-  nickname: z.string().nullable().optional(),
-  displayName: z.string().nullable().optional(),
-  avatarUrl: z.string().nullable().optional(),
-});
-
 const pullRequestItemSchema = z.object({
   id: z.number(),
   title: z.string(),
   url: z.string().url(),
-  repoSlug: z.string(),
-  repoName: z.string(),
-  author: pullRequestAuthorSchema,
+  repository: z.object({
+    uuid: z.string(),
+    slug: z.string(),
+    name: z.string(),
+  }),
+  author: z.object({
+    uuid: z.string(),
+    displayName: z.string(),
+    avatarUrl: z.string().nullable().optional(),
+  }),
   createdOn: z.string(),
-  participants: z
-    .array(z.object({ approved: z.boolean().nullable().optional(), state: z.string().nullable().optional() }))
-    .default([]),
+  updatedOn: z.string(),
+  approvals: z.number(),
+  minApprovals: z.number(),
+  changesRequested: z.boolean(),
+  hasReviewActivity: z.boolean(),
+  reviewState: z.enum(["waiting", "in_review", "changes_requested", "approved"]),
+  ageBand: z.enum(["normal", "warning", "critical"]),
 });
 
 const responseSchema = z.object({
-  cached: z.boolean(),
-  cachedAtMs: z.number().optional(),
-  generatedAtMs: z.number(),
-  refreshIntervalSec: z.number(),
   pullRequests: z.array(pullRequestItemSchema),
-  errors: z.array(z.object({ repoSlug: z.string(), status: z.number().optional(), message: z.string() })),
-  rateLimit: z
-    .object({
-      retryAfterSeconds: z.number(),
-    })
-    .nullable()
-    .optional(),
-  forceLimitedForMs: z.number().optional(),
+  errors: z.array(
+    z.object({
+      repositorySlug: z.string(),
+      status: z.number().optional(),
+      message: z.string(),
+    }),
+  ),
+  fetchedAt: z.string(),
+  fromCache: z.boolean(),
+  rateLimit: z.object({ retryAfterSeconds: z.number() }).optional(),
 });
 
 export type PullRequestsResponse = z.infer<typeof responseSchema>;
 
 type Filters = {
-  squadId?: number | null;
-  repoSlug?: string | null;
+  teamId?: number | null;
 };
 
 async function fetchPullRequests(filters: Filters, force: boolean) {
   const params = new URLSearchParams();
-  if (filters.squadId) params.set("squadId", String(filters.squadId));
-  if (filters.repoSlug) params.set("repoSlug", filters.repoSlug);
+  if (filters.teamId) params.set("teamId", String(filters.teamId));
   if (force) params.set("force", "1");
 
   const res = await fetch(`/api/pull-requests?${params.toString()}`, {

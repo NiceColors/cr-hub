@@ -8,6 +8,13 @@
       "when": 1792607683217,
       "tag": "0000_glamorous_vivisector",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792608839502,
+      "tag": "0001_cr_tracker_design",
+      "breakpoints": true
     }
   ]
 }

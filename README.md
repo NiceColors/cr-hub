@@ -66,13 +66,15 @@ Abra `http://localhost:43123`.
 ## Como usar
 
 1. Vá em **/config**:
-   - Selecione **repositórios** monitorados
-   - Selecione **usuários** monitorados (se `403`, cadastre manualmente por UUID)
-   - Crie **squads** (nome, membros, e filtro opcional de repositórios)
+   - Clique em **Sincronizar lista** em *Repositórios* e marque quais serão **monitorados**
+   - Defina o **mínimo de aprovações** por repositório
+   - Clique em **Sincronizar lista** em *Membros* e marque quais usuários serão **monitorados**
+     - Se o endpoint retornar **403**, cadastre manualmente por UUID/nickname
+   - Crie **Times** (nome, membros e filtro opcional de repositórios; vazio = todos os repos monitorados)
    - Ajuste o **intervalo de atualização** (30/60/120s)
 2. Vá em **/**:
    - Veja PRs abertos
-   - Filtre por **squad** e **repositório**
+   - Filtre por **time** e por filtros avançados (ReUI Filters)
    - Use **Atualizar agora** (força refresh, limitado a 1 vez/10s por combinação de filtros)
 
 ## Rate limit
@@ -83,4 +85,4 @@ Abra `http://localhost:43123`.
 
 ## Estrutura
 
-`src/app/api/*` contém os Route Handlers; `src/lib/*` contém Bitbucket client, cache, DB e regras de domínio puras em `src/lib/domain/*` com testes unitários em Vitest.
+`src/app/api/*` contém os Route Handlers; `src/services/*` contém orquestração; `src/lib/*` contém Bitbucket client/cache/DB; e regras puras ficam em `src/domain/*` com testes unitários em Vitest.

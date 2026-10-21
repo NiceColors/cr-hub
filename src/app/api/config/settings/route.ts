@@ -1,41 +1,29 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
-import { settings } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { getSettings, setPollIntervalSeconds } from "@/services/configService";
 
-const bodySchema = z.object({
-  refreshIntervalSec: z.union([z.literal(30), z.literal(60), z.literal(120)]),
+export const dynamic = "force-dynamic";
+
+const putSchema = z.object({
+  pollIntervalSeconds: z.union([z.literal(30), z.literal(60), z.literal(120)]),
 });
 
-function getOrInitSettings() {
-  const row = db.select().from(settings).where(eq(settings.id, 1)).get();
-  if (row) return row;
-  db.insert(settings).values({ id: 1, refreshIntervalSec: 30 }).run();
-  return db.select().from(settings).where(eq(settings.id, 1)).get()!;
-}
-
 export async function GET() {
-  const row = getOrInitSettings();
-  return NextResponse.json({ refreshIntervalSec: row.refreshIntervalSec });
+  const s = getSettings();
+  return NextResponse.json({ pollIntervalSeconds: s.pollIntervalSeconds });
 }
 
 export async function PUT(req: Request) {
   const json = await req.json().catch(() => null);
-  const parsed = bodySchema.safeParse(json);
+  const parsed = putSchema.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Payload inválido", details: parsed.error.flatten() },
+      { error: { code: "BAD_REQUEST", message: parsed.error.message } },
       { status: 400 },
     );
   }
 
-  getOrInitSettings();
-  db.update(settings)
-    .set({ refreshIntervalSec: parsed.data.refreshIntervalSec })
-    .where(eq(settings.id, 1))
-    .run();
-
+  setPollIntervalSeconds(parsed.data.pollIntervalSeconds);
   return NextResponse.json({ ok: true });
 }
 

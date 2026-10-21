@@ -1,54 +1,61 @@
 import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-export const monitoredRepos = sqliteTable("monitored_repos", {
-  slug: text("slug").notNull().primaryKey(),
+export const repositories = sqliteTable("repositories", {
+  uuid: text("uuid").notNull().primaryKey(), // UUID do Bitbucket, inclui {}
+  slug: text("slug").notNull().unique(),
   name: text("name").notNull(),
+  monitored: integer("monitored", { mode: "boolean" }).notNull().default(false),
+  minApprovals: integer("min_approvals").notNull().default(1),
+  syncedAt: integer("synced_at", { mode: "timestamp_ms" }),
 });
 
-export const monitoredUsers = sqliteTable("monitored_users", {
+export const members = sqliteTable("members", {
   uuid: text("uuid").notNull().primaryKey(),
   nickname: text("nickname"),
-  displayName: text("display_name"),
+  displayName: text("display_name").notNull(),
   avatarUrl: text("avatar_url"),
+  monitored: integer("monitored", { mode: "boolean" }).notNull().default(false),
+  source: text("source").notNull(), // 'workspace' | 'manual'
 });
 
-export const squads = sqliteTable("squads", {
+export const teams = sqliteTable("teams", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull().unique(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-export const squadMembers = sqliteTable(
-  "squad_members",
+export const teamMembers = sqliteTable(
+  "team_members",
   {
-    squadId: integer("squad_id")
+    teamId: integer("team_id")
       .notNull()
-      .references(() => squads.id, { onDelete: "cascade" }),
-    userUuid: text("user_uuid")
+      .references(() => teams.id, { onDelete: "cascade" }),
+    memberUuid: text("member_uuid")
       .notNull()
-      .references(() => monitoredUsers.uuid, { onDelete: "cascade" }),
+      .references(() => members.uuid, { onDelete: "cascade" }),
   },
   (t) => ({
-    pk: primaryKey({ columns: [t.squadId, t.userUuid] }),
+    pk: primaryKey({ columns: [t.teamId, t.memberUuid] }),
   }),
 );
 
-export const squadRepoFilters = sqliteTable(
-  "squad_repo_filters",
+export const teamRepositories = sqliteTable(
+  "team_repositories",
   {
-    squadId: integer("squad_id")
+    teamId: integer("team_id")
       .notNull()
-      .references(() => squads.id, { onDelete: "cascade" }),
-    repoSlug: text("repo_slug")
+      .references(() => teams.id, { onDelete: "cascade" }),
+    repositoryUuid: text("repository_uuid")
       .notNull()
-      .references(() => monitoredRepos.slug, { onDelete: "cascade" }),
+      .references(() => repositories.uuid, { onDelete: "cascade" }),
   },
   (t) => ({
-    pk: primaryKey({ columns: [t.squadId, t.repoSlug] }),
+    pk: primaryKey({ columns: [t.teamId, t.repositoryUuid] }),
   }),
 );
 
 export const settings = sqliteTable("settings", {
   id: integer("id").primaryKey(),
-  refreshIntervalSec: integer("refresh_interval_sec").notNull().default(30),
+  pollIntervalSeconds: integer("poll_interval_seconds").notNull().default(30),
 });
 

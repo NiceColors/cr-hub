@@ -1,4 +1,4 @@
-import { PullRequestsPage } from "@/app/pull-requests-page";
+import { PullRequestsPage } from "./pull-requests-page";
 
 export default function Home() {
   return <PullRequestsPage />;

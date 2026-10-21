@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { requestsCounter } from "@/lib/requestsCounter";
+import {
+  bitbucketPullRequestSchema,
+  bitbucketRepoSchema,
+  bitbucketUserSchema,
+  bitbucketWorkspaceMemberSchema,
+} from "@/lib/bitbucket/schemas";
+import { buildOpenPrQueryBatches } from "@/lib/bitbucket/queries";
 
 const BITBUCKET_API_BASE = "https://api.bitbucket.org/2.0";
 
@@ -8,7 +15,10 @@ export class BitbucketHttpError extends Error {
   retryAfterSeconds?: number;
   url: string;
 
-  constructor(message: string, opts: { status: number; url: string; retryAfterSeconds?: number }) {
+  constructor(
+    message: string,
+    opts: { status: number; url: string; retryAfterSeconds?: number },
+  ) {
     super(message);
     this.name = "BitbucketHttpError";
     this.status = opts.status;
@@ -17,7 +27,7 @@ export class BitbucketHttpError extends Error {
   }
 }
 
-function getAuthHeader() {
+function getAuth() {
   const workspace = process.env.BITBUCKET_WORKSPACE;
   const email = process.env.BITBUCKET_EMAIL;
   const token = process.env.BITBUCKET_API_TOKEN;
@@ -37,8 +47,8 @@ function sleep(ms: number) {
 type FetchJsonOptions = {
   method?: "GET" | "POST" | "PUT" | "DELETE";
   signal?: AbortSignal;
-  maxAttempts?: number;
-  backoffBaseMs?: number;
+  maxAttempts?: number; // default: 3
+  timeoutMs?: number; // default: 10s
 };
 
 export async function bitbucketFetchJson<T>(
@@ -46,15 +56,23 @@ export async function bitbucketFetchJson<T>(
   schema: z.ZodType<T>,
   opts: FetchJsonOptions = {},
 ): Promise<T> {
-  const { authorization } = getAuthHeader();
-  const url = urlOrPath.startsWith("http") ? urlOrPath : `${BITBUCKET_API_BASE}${urlOrPath}`;
+  const { authorization } = getAuth();
+  const url = urlOrPath.startsWith("http")
+    ? urlOrPath
+    : `${BITBUCKET_API_BASE}${urlOrPath}`;
 
-  const maxAttempts = opts.maxAttempts ?? 5;
-  const backoffBaseMs = opts.backoffBaseMs ?? 500;
+  const maxAttempts = opts.maxAttempts ?? 3;
+  const timeoutMs = opts.timeoutMs ?? 10_000;
 
   let lastErr: unknown = undefined;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     requestsCounter.add();
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const signal = opts.signal
+      ? AbortSignal.any([opts.signal, controller.signal])
+      : controller.signal;
 
     const res = await fetch(url, {
       method: opts.method ?? "GET",
@@ -62,8 +80,8 @@ export async function bitbucketFetchJson<T>(
         Authorization: authorization,
         Accept: "application/json",
       },
-      signal: opts.signal,
-    });
+      signal,
+    }).finally(() => clearTimeout(timeoutId));
 
     if (res.ok) {
       const json = await res.json();
@@ -82,8 +100,7 @@ export async function bitbucketFetchJson<T>(
         ? Number(retryAfterHeader)
         : undefined;
 
-    const message = `Bitbucket retornou ${res.status} (${url})`;
-    const err = new BitbucketHttpError(message, {
+    const err = new BitbucketHttpError(`Bitbucket retornou ${res.status}`, {
       status: res.status,
       url,
       retryAfterSeconds,
@@ -94,8 +111,11 @@ export async function bitbucketFetchJson<T>(
       res.status === 429 || (res.status >= 500 && res.status <= 599);
     if (!isRetryable || attempt === maxAttempts) break;
 
-    const exp = backoffBaseMs * Math.pow(2, attempt - 1);
-    const waitMs = Math.max(exp, (retryAfterSeconds ?? 0) * 1000);
+    const backoffSeconds = Math.pow(2, attempt - 1); // 1s, 2s, 4s
+    const waitMs = Math.max(
+      backoffSeconds * 1000,
+      (retryAfterSeconds ?? 0) * 1000,
+    );
     await sleep(waitMs);
   }
 
@@ -105,10 +125,20 @@ export async function bitbucketFetchJson<T>(
 export async function fetchAllPages<T>(
   firstUrlOrPath: string,
   pageSchema: z.ZodType<{ values: T[]; next?: string }>,
+  opts: { maxPages?: number } = {},
 ): Promise<T[]> {
   const out: T[] = [];
   let next: string | undefined = firstUrlOrPath;
+  let pages = 0;
+  const maxPages = opts.maxPages ?? 20;
+
   while (next) {
+    pages++;
+    if (pages > maxPages) {
+      throw new Error(
+        `Paginação excedeu o limite de segurança (${maxPages} páginas)`,
+      );
+    }
     const page: { values: T[]; next?: string } = await bitbucketFetchJson(
       next,
       pageSchema,
@@ -143,6 +173,95 @@ export async function mapLimit<I, O>(
 }
 
 export function getWorkspaceFromEnv() {
-  return getAuthHeader().workspace;
+  return getAuth().workspace;
+}
+
+const paginatedUnknownSchema = z.object({
+  values: z.array(z.unknown()),
+  next: z.string().url().optional(),
+});
+
+function parseItems<T>(what: string, items: unknown[], schema: z.ZodType<T>) {
+  const out: T[] = [];
+  for (const item of items) {
+    const parsed = schema.safeParse(item);
+    if (parsed.success) out.push(parsed.data);
+    else console.warn(`[bitbucket] item inválido em ${what}:`, parsed.error.message);
+  }
+  return out;
+}
+
+export interface BitbucketClient {
+  listRepositories(): Promise<z.infer<typeof bitbucketRepoSchema>[]>;
+  listMembers(): Promise<z.infer<typeof bitbucketWorkspaceMemberSchema>[]>;
+  listOpenPullRequests(
+    repoSlug: string,
+    authorUuids: string[],
+  ): Promise<z.infer<typeof bitbucketPullRequestSchema>[]>;
+  getCurrentUser(): Promise<z.infer<typeof bitbucketUserSchema>>;
+}
+
+export function createBitbucketClient(): BitbucketClient {
+  return {
+    async listRepositories() {
+      const workspace = getWorkspaceFromEnv();
+      const params = new URLSearchParams({
+        role: "member",
+        pagelen: "100",
+        fields: "values.uuid,values.slug,values.name,next",
+      });
+      const first = `/repositories/${encodeURIComponent(workspace)}?${params.toString()}`;
+      const rows = await fetchAllPages(first, paginatedUnknownSchema);
+      return parseItems("repositories", rows as unknown as unknown[], bitbucketRepoSchema);
+    },
+
+    async listMembers() {
+      const workspace = getWorkspaceFromEnv();
+      const params = new URLSearchParams({
+        pagelen: "100",
+        fields:
+          "values.user.uuid,values.user.nickname,values.user.display_name,values.user.links.avatar.href,next",
+      });
+      const first = `/workspaces/${encodeURIComponent(workspace)}/members?${params.toString()}`;
+      const rows = await fetchAllPages(first, paginatedUnknownSchema);
+      return parseItems("members", rows as unknown as unknown[], bitbucketWorkspaceMemberSchema);
+    },
+
+    async listOpenPullRequests(repoSlug: string, authorUuids: string[]) {
+      const workspace = getWorkspaceFromEnv();
+      const qBatches = buildOpenPrQueryBatches(authorUuids, 25);
+      const queries = qBatches.length ? qBatches : [`state="OPEN"`];
+
+      const all: z.infer<typeof bitbucketPullRequestSchema>[] = [];
+      for (const q of queries) {
+        const params = new URLSearchParams({
+          q,
+          pagelen: "50",
+          fields:
+            "values.id,values.title,values.links.html,values.author,values.created_on,values.updated_on,values.participants,next",
+        });
+        const first = `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests?${params.toString()}`;
+        const rows = await fetchAllPages(first, paginatedUnknownSchema);
+        all.push(
+          ...parseItems(
+            `pullrequests(${repoSlug})`,
+            rows as unknown as unknown[],
+            bitbucketPullRequestSchema,
+          ),
+        );
+      }
+
+      const byId = new Map<number, z.infer<typeof bitbucketPullRequestSchema>>();
+      for (const pr of all) byId.set(pr.id, pr);
+      return [...byId.values()];
+    },
+
+    async getCurrentUser() {
+      const params = new URLSearchParams({
+        fields: "uuid,nickname,display_name,links.avatar.href",
+      });
+      return await bitbucketFetchJson(`/user?${params.toString()}`, bitbucketUserSchema);
+    },
+  };
 }
 

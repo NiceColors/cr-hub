@@ -83,9 +83,13 @@ export function PullRequestTable({
             animate={{ opacity: 1 }}
           >
             <LayoutGroup key={presenceKey}>
+              {/* presenceAffectsLayout would hand every row a new presence
+                  context on each render, defeating the row memo; the
+                  LayoutGroup already re-measures siblings after an exit. */}
               <AnimatePresence
                 initial={false}
                 custom={departures}
+                presenceAffectsLayout={false}
                 onExitComplete={() => setExitState((s) => ({ ...s, settled: true }))}
               >
                 {rows.map((row, index) => (

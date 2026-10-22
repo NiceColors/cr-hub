@@ -108,8 +108,8 @@ describe("resolveTeamScope / filterByTeam", () => {
       },
     ];
     const team = { memberUuids: ["u1"], repositoryUuids: ["r1"] };
-    const out = filterByTeam(prs as any, team, [{ uuid: "r1" }, { uuid: "r2" }]);
-    expect(out.map((p: any) => p.id)).toEqual([1]);
+    const out = filterByTeam(prs, team, [{ uuid: "r1" }, { uuid: "r2" }]);
+    expect(out.map((p) => p.id)).toEqual([1]);
   });
 });
 

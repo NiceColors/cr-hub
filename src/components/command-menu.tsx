@@ -3,22 +3,12 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { motion } from "motion/react";
-import { RefreshCwIcon } from "lucide-react";
-import {
-  Command,
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-  CommandShortcut,
-} from "@/components/ui/command";
+import { useTheme } from "next-themes";
+import { BookmarkIcon, RefreshCwIcon } from "lucide-react";
+import { CommandPalette, type CommandItem } from "@/components/motion/command-palette";
 import { NAV_ITEMS } from "@/components/nav-items";
-import { THEME_OPTIONS, useThemeTransition } from "@/components/theme-toggle";
-import { DURATION, EASE_OUT } from "@/components/motion/tokens";
+import { useSavedViews } from "@/hooks/use-config";
+import { THEME_OPTIONS } from "@/components/theme-toggle";
 import { queryKeys } from "@/lib/query-keys";
 
 type CommandMenuContextValue = {
@@ -53,11 +43,6 @@ export function CommandMenuProvider({ children }: { children: React.ReactNode })
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        setOpen((o) => !o);
-        return;
-      }
       if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) {
         return;
       }
@@ -97,102 +82,55 @@ export function CommandMenuProvider({ children }: { children: React.ReactNode })
 
 function CommandMenu() {
   const { open, setOpen } = useCommandMenu();
-
-  return (
-    <CommandDialog
-      open={open}
-      onOpenChange={setOpen}
-      title="Paleta de comandos"
-      description="Navegue ou execute uma ação"
-    >
-      <CommandPalette onDone={() => setOpen(false)} />
-    </CommandDialog>
-  );
-}
-
-/** Mounted with the dialog content, so the active item resets on every open. */
-function CommandPalette({ onDone }: { onDone: () => void }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const setTheme = useThemeTransition();
-  const [active, setActive] = useState("");
+  const { setTheme } = useTheme();
+  const views = useSavedViews().data?.views;
 
-  function run(action: () => void) {
-    onDone();
-    action();
-  }
-
-  return (
-    <Command value={active} onValueChange={setActive}>
-      <CommandInput placeholder="Digite um comando ou busque…" />
-      <CommandList>
-        <CommandEmpty>Nenhum comando encontrado.</CommandEmpty>
-        <CommandGroup heading="Navegação">
-          {NAV_ITEMS.map((item) => (
-            <PaletteItem
-              key={item.href}
-              value={item.title}
-              active={active}
-              onSelect={() => run(() => router.push(item.href))}
-            >
-              <item.icon />
-              {item.title}
-              <CommandShortcut>{item.shortcut}</CommandShortcut>
-            </PaletteItem>
-          ))}
-        </CommandGroup>
-        <CommandSeparator />
-        <CommandGroup heading="Ações">
-          <PaletteItem
-            value="Recarregar fila de PRs"
-            active={active}
-            onSelect={() =>
-              run(() => void queryClient.refetchQueries({ queryKey: queryKeys.pullRequests }))
-            }
-          >
-            <RefreshCwIcon />
-            Recarregar fila de PRs
-          </PaletteItem>
-        </CommandGroup>
-        <CommandSeparator />
-        <CommandGroup heading="Tema">
-          {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
-            <PaletteItem
-              key={value}
-              value={`Tema ${label}`}
-              active={active}
-              onSelect={() => run(() => setTheme(value))}
-            >
-              <Icon />
-              Tema {label.toLowerCase()}
-            </PaletteItem>
-          ))}
-        </CommandGroup>
-      </CommandList>
-    </Command>
+  const items = useMemo<CommandItem[]>(
+    () => [
+      ...NAV_ITEMS.map((item) => ({
+        id: `nav:${item.href}`,
+        label: item.title,
+        group: "Navegação",
+        hint: item.shortcut,
+        icon: item.icon,
+        onSelect: () => router.push(item.href),
+      })),
+      ...(views ?? []).map((view) => ({
+        id: `view:${view.id}`,
+        label: view.name,
+        group: "Visões",
+        keywords: ["visão", "filtro"],
+        icon: BookmarkIcon,
+        onSelect: () => router.push(`/?view=${view.id}`),
+      })),
+      {
+        id: "action:refresh",
+        label: "Recarregar fila de PRs",
+        group: "Ações",
+        keywords: ["atualizar", "refresh"],
+        icon: RefreshCwIcon,
+        onSelect: () => void queryClient.refetchQueries({ queryKey: queryKeys.pullRequests }),
+      },
+      ...THEME_OPTIONS.map(({ value, label, icon }) => ({
+        id: `theme:${value}`,
+        label: `Tema ${label.toLowerCase()}`,
+        group: "Tema",
+        icon,
+        onSelect: () => setTheme(value),
+      })),
+    ],
+    [router, queryClient, setTheme, views],
   );
-}
 
-const HIGHLIGHT_TRANSITION = { duration: DURATION.fast, ease: EASE_OUT };
-
-/** The active item's background is one shared element that slides between items. */
-function PaletteItem({
-  value,
-  active,
-  children,
-  ...props
-}: React.ComponentProps<typeof CommandItem> & { value: string; active: string }) {
   return (
-    <CommandItem value={value} className="isolate data-selected:bg-transparent" {...props}>
-      {active === value ? (
-        <motion.span
-          layoutId="command-menu-highlight"
-          aria-hidden
-          className="absolute inset-0 -z-10 rounded-lg bg-accent"
-          transition={HIGHLIGHT_TRANSITION}
-        />
-      ) : null}
-      {children}
-    </CommandItem>
+    <CommandPalette
+      items={items}
+      open={open}
+      onOpenChange={setOpen}
+      placeholder="Digite um comando ou busque…"
+      emptyMessage="Nenhum comando encontrado."
+    />
   );
 }

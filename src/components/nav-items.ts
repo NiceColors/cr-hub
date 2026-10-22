@@ -1,4 +1,9 @@
-import { GitPullRequestIcon, Settings2Icon, type LucideIcon } from "lucide-react";
+import {
+  GitPullRequestIcon,
+  Settings2Icon,
+  UsersRoundIcon,
+  type LucideIcon,
+} from "lucide-react";
 
 export type NavItem = {
   title: string;
@@ -9,6 +14,7 @@ export type NavItem = {
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { title: "Fila de CRs", href: "/", icon: GitPullRequestIcon, shortcut: "G F" },
+  { title: "Equipe", href: "/equipe", icon: UsersRoundIcon, shortcut: "G E" },
   { title: "Configuração", href: "/config", icon: Settings2Icon, shortcut: "G C" },
 ];
 

@@ -1,10 +1,10 @@
-import { PageTransition } from "@/components/motion/page-transition";
+import { Suspense } from "react";
 import { PullRequestsView } from "@/components/pull-requests/pull-requests-view";
 
 export default function Home() {
   return (
-    <PageTransition>
+    <Suspense>
       <PullRequestsView />
-    </PageTransition>
+    </Suspense>
   );
 }

@@ -1,12 +1,19 @@
 import { z } from "zod";
 import { requestsCounter } from "@/lib/requestsCounter";
 import {
+  bitbucketCommentSchema,
+  bitbucketCommitStatusSchema,
+  bitbucketDiffstatSchema,
+  bitbucketPullRequestDetailSchema,
   bitbucketPullRequestSchema,
   bitbucketRepoSchema,
   bitbucketUserSchema,
   bitbucketWorkspaceMemberSchema,
+  type BitbucketComment,
+  type BitbucketPullRequestDetail,
 } from "@/lib/bitbucket/schemas";
 import { buildOpenPrQueryBatches } from "@/lib/bitbucket/queries";
+import { resolveCredentials, type BitbucketCredentials } from "@/lib/bitbucket/credentials";
 
 const BITBUCKET_API_BASE = "https://api.bitbucket.org/2.0";
 
@@ -27,16 +34,15 @@ export class BitbucketHttpError extends Error {
   }
 }
 
-function getAuth() {
-  const workspace = process.env.BITBUCKET_WORKSPACE;
-  const email = process.env.BITBUCKET_EMAIL;
-  const token = process.env.BITBUCKET_API_TOKEN;
-  if (!workspace || !email || !token) {
+function getAuth(override?: BitbucketCredentials) {
+  const credentials = override ?? resolveCredentials().credentials;
+  if (!credentials) {
     throw new Error(
-      "Variáveis ausentes: BITBUCKET_WORKSPACE, BITBUCKET_EMAIL, BITBUCKET_API_TOKEN",
+      "Credenciais do Bitbucket ausentes: configure em Configuração → Integrações ou defina BITBUCKET_WORKSPACE, BITBUCKET_EMAIL e BITBUCKET_API_TOKEN",
     );
   }
-  const basic = Buffer.from(`${email}:${token}`).toString("base64");
+  const { workspace, email, apiToken } = credentials;
+  const basic = Buffer.from(`${email}:${apiToken}`).toString("base64");
   return { workspace, authorization: `Basic ${basic}` };
 }
 
@@ -44,11 +50,18 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+export type BitbucketCallHooks = {
+  onResponse?: (status: number) => void;
+};
+
 type FetchJsonOptions = {
   method?: "GET" | "POST" | "PUT" | "DELETE";
+  body?: unknown;
   signal?: AbortSignal;
   maxAttempts?: number; // default: 3
   timeoutMs?: number; // default: 10s
+  hooks?: BitbucketCallHooks;
+  credentials?: BitbucketCredentials;
 };
 
 export async function bitbucketFetchJson<T>(
@@ -56,7 +69,7 @@ export async function bitbucketFetchJson<T>(
   schema: z.ZodType<T>,
   opts: FetchJsonOptions = {},
 ): Promise<T> {
-  const { authorization } = getAuth();
+  const { authorization } = getAuth(opts.credentials);
   const url = urlOrPath.startsWith("http")
     ? urlOrPath
     : `${BITBUCKET_API_BASE}${urlOrPath}`;
@@ -79,9 +92,13 @@ export async function bitbucketFetchJson<T>(
       headers: {
         Authorization: authorization,
         Accept: "application/json",
+        ...(opts.body === undefined ? {} : { "Content-Type": "application/json" }),
       },
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
       signal,
     }).finally(() => clearTimeout(timeoutId));
+
+    opts.hooks?.onResponse?.(res.status);
 
     if (res.ok) {
       const json = await res.json();
@@ -125,7 +142,7 @@ export async function bitbucketFetchJson<T>(
 export async function fetchAllPages<T>(
   firstUrlOrPath: string,
   pageSchema: z.ZodType<{ values: T[]; next?: string }>,
-  opts: { maxPages?: number } = {},
+  opts: { maxPages?: number; hooks?: BitbucketCallHooks } = {},
 ): Promise<T[]> {
   const out: T[] = [];
   let next: string | undefined = firstUrlOrPath;
@@ -142,6 +159,7 @@ export async function fetchAllPages<T>(
     const page: { values: T[]; next?: string } = await bitbucketFetchJson(
       next,
       pageSchema,
+      { hooks: opts.hooks },
     );
     out.push(...page.values);
     next = page.next;
@@ -176,6 +194,17 @@ export function getWorkspaceFromEnv() {
   return getAuth().workspace;
 }
 
+/** Valida credenciais candidatas sem tocar nas que estão em uso. */
+export async function checkCredentials(credentials: BitbucketCredentials) {
+  const opts = { credentials, maxAttempts: 1 };
+  await bitbucketFetchJson("/user?fields=uuid", z.object({ uuid: z.string() }), opts);
+  await bitbucketFetchJson(
+    `/repositories/${encodeURIComponent(credentials.workspace)}?pagelen=1&fields=values.uuid`,
+    z.object({ values: z.array(z.unknown()) }),
+    opts,
+  );
+}
+
 const paginatedUnknownSchema = z.object({
   values: z.array(z.unknown()),
   next: z.string().url().optional(),
@@ -197,11 +226,32 @@ export interface BitbucketClient {
   listOpenPullRequests(
     repoSlug: string,
     authorUuids: string[],
+    reviewerUuid?: string | null,
   ): Promise<z.infer<typeof bitbucketPullRequestSchema>[]>;
   getCurrentUser(): Promise<z.infer<typeof bitbucketUserSchema>>;
+  getPullRequest(repoSlug: string, id: number): Promise<BitbucketPullRequestDetail>;
+  setPullRequestReviewers(
+    repoSlug: string,
+    id: number,
+    input: { title: string; reviewerUuids: string[] },
+  ): Promise<void>;
+  getDiffstatTotals(
+    repoSlug: string,
+    id: number,
+  ): Promise<{ linesAdded: number; linesRemoved: number; filesChanged: number }>;
+  listCommitStatuses(
+    repoSlug: string,
+    id: number,
+  ): Promise<z.infer<typeof bitbucketCommitStatusSchema>[]>;
+  listRecentComments(repoSlug: string, id: number, limit: number): Promise<BitbucketComment[]>;
 }
 
-export function createBitbucketClient(): BitbucketClient {
+function pullRequestPath(repoSlug: string, id: number) {
+  const workspace = getWorkspaceFromEnv();
+  return `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests/${id}`;
+}
+
+export function createBitbucketClient(hooks: BitbucketCallHooks = {}): BitbucketClient {
   return {
     async listRepositories() {
       const workspace = getWorkspaceFromEnv();
@@ -211,7 +261,7 @@ export function createBitbucketClient(): BitbucketClient {
         fields: "values.uuid,values.slug,values.name,next",
       });
       const first = `/repositories/${encodeURIComponent(workspace)}?${params.toString()}`;
-      const rows = await fetchAllPages(first, paginatedUnknownSchema);
+      const rows = await fetchAllPages(first, paginatedUnknownSchema, { hooks });
       return parseItems("repositories", rows as unknown as unknown[], bitbucketRepoSchema);
     },
 
@@ -223,13 +273,17 @@ export function createBitbucketClient(): BitbucketClient {
           "values.user.uuid,values.user.nickname,values.user.display_name,values.user.links.avatar.href,next",
       });
       const first = `/workspaces/${encodeURIComponent(workspace)}/members?${params.toString()}`;
-      const rows = await fetchAllPages(first, paginatedUnknownSchema);
+      const rows = await fetchAllPages(first, paginatedUnknownSchema, { hooks });
       return parseItems("members", rows as unknown as unknown[], bitbucketWorkspaceMemberSchema);
     },
 
-    async listOpenPullRequests(repoSlug: string, authorUuids: string[]) {
+    async listOpenPullRequests(
+      repoSlug: string,
+      authorUuids: string[],
+      reviewerUuid?: string | null,
+    ) {
       const workspace = getWorkspaceFromEnv();
-      const qBatches = buildOpenPrQueryBatches(authorUuids, 25);
+      const qBatches = buildOpenPrQueryBatches(authorUuids, 25, reviewerUuid);
       const queries = qBatches.length ? qBatches : [`state="OPEN"`];
 
       const all: z.infer<typeof bitbucketPullRequestSchema>[] = [];
@@ -237,11 +291,27 @@ export function createBitbucketClient(): BitbucketClient {
         const params = new URLSearchParams({
           q,
           pagelen: "50",
-          fields:
-            "values.id,values.title,values.links.html,values.author,values.created_on,values.updated_on,values.participants,next",
+          fields: [
+            "values.id",
+            "values.title",
+            "values.links.html",
+            "values.author",
+            "values.created_on",
+            "values.updated_on",
+            "values.participants",
+            "values.reviewers.uuid",
+            "values.reviewers.display_name",
+            "values.reviewers.nickname",
+            "values.reviewers.links.avatar.href",
+            "values.comment_count",
+            "values.task_count",
+            "values.source.branch.name",
+            "values.destination.branch.name",
+            "next",
+          ].join(","),
         });
         const first = `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests?${params.toString()}`;
-        const rows = await fetchAllPages(first, paginatedUnknownSchema);
+        const rows = await fetchAllPages(first, paginatedUnknownSchema, { hooks });
         all.push(
           ...parseItems(
             `pullrequests(${repoSlug})`,
@@ -260,7 +330,86 @@ export function createBitbucketClient(): BitbucketClient {
       const params = new URLSearchParams({
         fields: "uuid,nickname,display_name,links.avatar.href",
       });
-      return await bitbucketFetchJson(`/user?${params.toString()}`, bitbucketUserSchema);
+      return await bitbucketFetchJson(`/user?${params.toString()}`, bitbucketUserSchema, {
+        hooks,
+      });
+    },
+
+    async getPullRequest(repoSlug: string, id: number) {
+      const params = new URLSearchParams({
+        fields: "id,title,updated_on,summary.raw,reviewers.uuid",
+      });
+      return await bitbucketFetchJson(
+        `${pullRequestPath(repoSlug, id)}?${params.toString()}`,
+        bitbucketPullRequestDetailSchema,
+        { hooks },
+      );
+    },
+
+    async setPullRequestReviewers(repoSlug, id, input) {
+      await bitbucketFetchJson(
+        `${pullRequestPath(repoSlug, id)}?fields=id`,
+        z.object({ id: z.number() }),
+        {
+          hooks,
+          method: "PUT",
+          maxAttempts: 1,
+          body: {
+            title: input.title,
+            reviewers: input.reviewerUuids.map((uuid) => ({ uuid })),
+          },
+        },
+      );
+    },
+
+    async getDiffstatTotals(repoSlug: string, id: number) {
+      const params = new URLSearchParams({
+        pagelen: "500",
+        fields: "values.lines_added,values.lines_removed,next",
+      });
+      const rows = await fetchAllPages(
+        `${pullRequestPath(repoSlug, id)}/diffstat?${params.toString()}`,
+        paginatedUnknownSchema,
+        { hooks, maxPages: 10 },
+      );
+      const files = parseItems(`diffstat(${repoSlug}#${id})`, rows, bitbucketDiffstatSchema);
+      let linesAdded = 0;
+      let linesRemoved = 0;
+      for (const f of files) {
+        linesAdded += f.lines_added ?? 0;
+        linesRemoved += f.lines_removed ?? 0;
+      }
+      return { linesAdded, linesRemoved, filesChanged: files.length };
+    },
+
+    async listCommitStatuses(repoSlug: string, id: number) {
+      const params = new URLSearchParams({
+        pagelen: "50",
+        fields: "values.state,values.name,values.url,next",
+      });
+      const rows = await fetchAllPages(
+        `${pullRequestPath(repoSlug, id)}/statuses?${params.toString()}`,
+        paginatedUnknownSchema,
+        { hooks, maxPages: 2 },
+      );
+      return parseItems(`statuses(${repoSlug}#${id})`, rows, bitbucketCommitStatusSchema);
+    },
+
+    async listRecentComments(repoSlug: string, id: number, limit: number) {
+      const params = new URLSearchParams({
+        pagelen: String(Math.min(Math.max(limit * 3, 10), 50)),
+        sort: "-created_on",
+        fields:
+          "values.id,values.created_on,values.deleted,values.content.raw,values.user.uuid,values.user.display_name,values.user.nickname,values.user.links.avatar.href,values.inline.path,next",
+      });
+      const page = await bitbucketFetchJson(
+        `${pullRequestPath(repoSlug, id)}/comments?${params.toString()}`,
+        paginatedUnknownSchema,
+        { hooks },
+      );
+      return parseItems(`comments(${repoSlug}#${id})`, page.values, bitbucketCommentSchema)
+        .filter((c) => !c.deleted)
+        .slice(0, limit);
     },
   };
 }

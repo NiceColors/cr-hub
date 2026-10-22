@@ -1,42 +1,20 @@
-"use client";
-
-import type { CSSProperties } from "react";
-import { AnimatePresence, motion } from "motion/react";
-import { Badge } from "@/components/ui/badge";
-import { DURATION, EASE_OUT } from "@/components/motion/tokens";
+import { AnimatedBadge, type AnimatedBadgeStatus } from "@/components/motion/animated-badge";
 import type { AgeBand, ReviewState } from "@/hooks/use-pull-requests";
 import { cn } from "@/lib/utils";
 
-const REVIEW_STATE: Record<
-  ReviewState,
-  { label: string; variant: "success" | "destructive" | "info" | "secondary" }
-> = {
-  approved: { label: "Aprovado", variant: "success" },
-  changes_requested: { label: "Mudanças pedidas", variant: "destructive" },
-  in_review: { label: "Em revisão", variant: "info" },
-  waiting: { label: "Aguardando", variant: "secondary" },
+const REVIEW_STATE: Record<ReviewState, { label: string; status: AnimatedBadgeStatus }> = {
+  approved: { label: "Aprovado", status: "success" },
+  changes_requested: { label: "Mudanças pedidas", status: "danger" },
+  in_review: { label: "Em revisão", status: "info" },
+  waiting: { label: "Aguardando", status: "neutral" },
 };
 
-const BADGE_ENTER = { duration: DURATION.base, ease: EASE_OUT };
-
-/** Crossfades in place when the state changes between updates; never on mount. */
 export function ReviewStateBadge({ state }: { state: ReviewState }) {
-  const { label, variant } = REVIEW_STATE[state];
+  const { label, status } = REVIEW_STATE[state];
   return (
-    <span className="inline-grid justify-items-start align-middle">
-      <AnimatePresence initial={false}>
-        <motion.span
-          key={state}
-          className="[grid-area:1/1]"
-          initial={{ opacity: 0, scale: 0.96 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0 }}
-          transition={BADGE_ENTER}
-        >
-          <Badge variant={variant}>{label}</Badge>
-        </motion.span>
-      </AnimatePresence>
-    </span>
+    <AnimatedBadge status={status} size="sm">
+      {label}
+    </AnimatedBadge>
   );
 }
 
@@ -53,8 +31,6 @@ export function AgeIndicator({ band }: { band: AgeBand }) {
     />
   );
 }
-
-const SEGMENT_STAGGER_MS = 30;
 
 export function ApprovalsMeter({
   approvals,
@@ -74,31 +50,20 @@ export function ApprovalsMeter({
       aria-valuenow={Math.min(approvals, segments)}
       aria-label={`${approvals} de ${required} aprovações`}
     >
-      {/* Fills stagger 30ms apart; the success color waits for the last
-          segment so every segment turns at once. */}
-      <div
-        className="flex gap-0.5"
-        style={{ "--meter-met-delay": `${(segments - 1) * SEGMENT_STAGGER_MS}ms` } as CSSProperties}
-      >
+      <div className="flex gap-0.5">
         {Array.from({ length: segments }, (_, i) => (
-          <span key={i} className="relative h-1.5 w-3 overflow-hidden rounded-full bg-secondary">
-            <span
-              data-filled={i < approvals || undefined}
-              data-met={met || undefined}
-              style={{ "--meter-delay": `${i * SEGMENT_STAGGER_MS}ms` } as CSSProperties}
-              className={cn(
-                "absolute inset-0 origin-left scale-x-0 rounded-full bg-primary opacity-0",
-                "transition-[scale,opacity,background-color] duration-base ease-out",
-                "[transition-delay:var(--meter-delay),var(--meter-delay),var(--meter-met-delay)]",
-                "data-filled:scale-x-100 data-filled:opacity-100 data-met:bg-success",
-              )}
-            />
-          </span>
+          <span
+            key={i}
+            className={cn(
+              "h-1.5 w-3 rounded-full",
+              i < approvals ? (met ? "bg-success" : "bg-primary") : "bg-secondary",
+            )}
+          />
         ))}
       </div>
       <span
         className={cn(
-          "font-mono text-xs tabular-nums transition-colors duration-base ease-out",
+          "font-mono text-xs tabular-nums",
           met ? "text-success-foreground" : "text-muted-foreground",
         )}
       >

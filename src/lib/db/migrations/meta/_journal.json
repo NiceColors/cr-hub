@@ -15,6 +15,20 @@
       "when": 1792608839502,
       "tag": "0001_cr_tracker_design",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792681200000,
+      "tag": "0002_anti_forgetting",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792700000000,
+      "tag": "0003_bitbucket_credentials",
+      "breakpoints": true
     }
   ]
 }

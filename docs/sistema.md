@@ -12,8 +12,8 @@ Este documento descreve a arquitetura, as funcionalidades, os fluxos principais 
 | --- | --- |
 | Framework | Next.js 16 (App Router) + React 19 |
 | Dados no cliente | TanStack Query (cache, polling, mutações otimistas) |
-| Tabelas | TanStack Table + ReUI Data Grid |
-| UI | shadcn/ui (estilo `base-nova`, sobre Base UI) + componentes do registry ReUI |
+| Tabelas | beUI Table (virtualizada com TanStack Virtual) |
+| UI | beUI (componentes animados com Motion, em `components/motion`) + ReUI Filters e primitivos shadcn/ui (Base UI) restantes |
 | Estilo | Tailwind CSS v4 com tokens em OKLCH |
 | Banco | SQLite local via Drizzle ORM (`better-sqlite3`) |
 | Validação | Zod (respostas do Bitbucket, payloads da API e respostas no cliente) |
@@ -24,8 +24,8 @@ Este documento descreve a arquitetura, as funcionalidades, os fluxos principais 
 ```
 src/
 ├── app/            Rotas (páginas "/" e "/config") e Route Handlers em app/api/*
-├── components/     UI: telas (pull-requests, config), shell (sidebar, header, ⌘K) e primitivos (ui, reui)
-├── hooks/          Hooks de dados (TanStack Query) e utilitários (useNow, useMobile)
+├── components/     UI: telas (pull-requests, config), shell (sidebar, header, ⌘K) e primitivos (motion = beUI, ui, reui)
+├── hooks/          Hooks de dados (TanStack Query) e utilitários (useNow)
 ├── services/       Orquestração no servidor (PRs, configuração, sincronização)
 ├── domain/         Regras de negócio puras e testadas (estado de review, faixa de idade, filtro por time)
 └── lib/            Cliente Bitbucket, cache em memória, contador de requests, banco e schema
@@ -47,16 +47,21 @@ flowchart LR
 
 ## 2. Modelo de dados
 
-O banco SQLite guarda apenas a **configuração** do que monitorar. Os PRs em si não são persistidos: vêm do Bitbucket e ficam num cache em memória.
+O banco SQLite guarda a **configuração** do que monitorar, os PRs silenciados, as visões salvas, o tamanho dos PRs já calculado e o **histórico** da fila. A fila em si vem do Bitbucket e fica num cache em memória.
 
 | Tabela | Conteúdo |
 | --- | --- |
-| `repositories` | Repositórios do workspace: `uuid`, `slug`, `name`, `monitored`, `min_approvals` (padrão 1), `synced_at` |
+| `repositories` | Repositórios do workspace: `uuid`, `slug`, `name`, `monitored`, `min_approvals` (padrão 1), `sla_warning_hours` e `sla_critical_hours` (nulos = 24h/72h), `synced_at` |
 | `members` | Membros: `uuid`, `nickname`, `display_name`, `avatar_url`, `monitored`, `source` (`workspace` ou `manual`) |
 | `teams` | Times: `id`, `name` (único), `created_at` |
 | `team_members` | Relação N:N entre times e membros (cascade on delete) |
 | `team_repositories` | Relação N:N entre times e repositórios (cascade on delete) |
-| `settings` | Linha única com `poll_interval_seconds` (30, 60 ou 120; padrão 30) |
+| `settings` | Linha única com `poll_interval_seconds` (30, 60 ou 120; padrão 30), `jira_base_url` e `jira_project_keys` |
+| `snoozes` | PRs silenciados: `pr_key` (`{repoUuid}:{id}`), `reason`, `kind` (`24h`, `tomorrow`, `until_change`), `until_ms`, `until_updated_on` |
+| `saved_views` | Visões salvas: `name` (único), `tab`, `team_id`, `filter_query` (JSON), `show_snoozed` |
+| `pr_diffstats` | Linhas adicionadas/removidas e arquivos por PR, válidos enquanto `updated_on` não muda |
+| `pr_history` | Linha do tempo de cada PR: `first_seen_at`, `first_review_at`, `approved_at`, `last_seen_at`, `closed_at` |
+| `queue_snapshots` | Retrato horário da fila: total, acima da atenção, críticos, aprovados, aguardando, mudanças pedidas |
 
 ---
 
@@ -64,20 +69,27 @@ O banco SQLite guarda apenas a **configuração** do que monitorar. Os PRs em si
 
 ### 3.1 Fila de CRs (`/`)
 
-É a tela principal. Mostra todos os PRs abertos que satisfazem duas condições: o autor é um **membro monitorado** e o PR está num **repositório monitorado**.
+É a tela principal. Mostra os PRs abertos nos **repositórios monitorados** cujo autor é um **membro monitorado**, mais os PRs em que o dono do token é revisor (mesmo de autores não monitorados).
 
-- **Indicadores no topo**: total de PRs abertos no filtro atual, quantos passaram de 24h ("precisam de atenção"), quantos passaram de 72h ("críticos") e quantos estão aprovados ("prontos para merge"). Os números ganham cor (amarelo, vermelho, verde) só quando são maiores que zero.
+- **Abas**:
+  - **Todos**: a fila dos membros monitorados.
+  - **Para mim**: PRs em que você é revisor e ainda não aprovou nem pediu mudanças. O contador da aba desconta os silenciados.
+  - **Meus PRs**: os PRs abertos por você.
+- **Indicadores no topo**: total no filtro atual, quantos passaram do SLA de atenção, quantos passaram do SLA crítico e quantos estão **prontos para merge** (aprovados, sem tarefas abertas e sem build falhando ou em andamento).
 - **Tabela de PRs** com as colunas:
-  - **Idade**: bolinha colorida + tempo relativo ("há 3 dias") que se atualiza a cada segundo, e um selo `>24h` ou `>72h` quando aplicável. Passar o mouse mostra a data absoluta.
-  - **Pull request**: título com link para o Bitbucket (abre em nova aba) e, abaixo, `slug-do-repo #id` em fonte mono.
-  - **Autor**: avatar (ou iniciais) e nome.
-  - **Aprovações**: medidor segmentado com um segmento por aprovação exigida, mais o texto `aprovadas/exigidas`.
-  - **Estado**: selo "Aguardando", "Em revisão", "Mudanças pedidas" ou "Aprovado".
-- **Ordenação** por qualquer coluna; o padrão é por idade, do mais antigo para o mais novo. A ordenação por estado segue a prioridade: mudanças pedidas → aguardando → em revisão → aprovado.
+  - **Idade**: bolinha colorida + tempo relativo, e um selo com o limite real do repositório (ex.: `>12h`).
+  - **Pull request**: título com link para o Bitbucket e, abaixo, `slug #id`, o selo do destino (`hotfix`, `prod` para master/main, `release`), a chave do Jira (link, se configurado), os contadores de comentários e de tarefas abertas (em âmbar quando um PR aprovado ainda tem tarefas) e o selo de silenciado com o motivo.
+  - **Autor**, **Aprovações** e **Estado** (o "Aprovado" ganha o ícone do build).
+  - **Tamanho**: P (até 50 linhas), M (até 250), G (até 1000) ou GG, calculado sob demanda pelo diffstat das linhas visíveis.
+  - **Ações** (menu ⋯): ver detalhes, abrir no Bitbucket, silenciar/remover silêncio e "Me adicionar como revisor".
+- **Ordenação padrão**: destinos prioritários primeiro (hotfix, depois master/main, depois release), e dentro de cada grupo do mais antigo para o mais novo. Clicar num cabeçalho ordena por aquela coluna; o terceiro clique volta à ordem padrão.
+- **Painel de detalhes**: clicar na linha (ou Enter com ela focada) abre um painel lateral com branches, tamanho, aprovações, revisores e o estado de cada um, a descrição e os 5 últimos comentários, além das ações.
+- **Silenciados** ficam fora da lista por padrão; "Mostrar silenciados" traz de volta, esmaecidos.
 - **Filtro por time** (select "Todos os times" ou um time específico).
-- **Filtros avançados** (ReUI Filters) por **repositório** e **autor**, com operadores "é", "não é", "é qualquer de" e "não é nenhum de", combináveis com E/OU.
-- **Paginação** de 50 em 50, exibida só quando há mais de 50 PRs.
-- **Atualização automática** no intervalo configurado, pausada quando a aba do navegador não está visível.
+- **Filtros avançados** (ReUI Filters) por **repositório**, **autor**, **destino**, **tamanho** e **estado**, com operadores "é", "não é", "é qualquer de" e "não é nenhum de", combináveis com E/OU.
+- **Visões salvas**: "Salvar visão" guarda aba, time, filtros e "mostrar silenciados" com um nome. A visão abre por `/?view=ID`, pela sidebar ou pelo ⌘K; se você mudar algo, aparece "Atualizar visão".
+- **Rolagem virtualizada**: a tabela cresce até 14 linhas e, acima disso, rola internamente com o cabeçalho fixo.
+- **Atualização automática** no intervalo configurado. Com a aba oculta, só a fila global segue sendo consultada (para badge e notificações), no mínimo a cada 120s.
 - **Botão "Atualizar"** que força uma nova busca no Bitbucket (limitada a uma vez a cada 10 segundos no servidor).
 - **Avisos contextuais**: configuração incompleta (nenhum repositório monitorado), limite de requisições do Bitbucket atingido (com contagem regressiva) e falhas por repositório (lista dos slugs e status HTTP).
 - **Estados vazios** distintos para "nenhum repositório monitorado" (com botão para a Configuração), "nenhum PR neste filtro" e "fila zerada".
@@ -86,13 +98,21 @@ O banco SQLite guarda apenas a **configuração** do que monitorar. Os PRs em si
 
 Ficam em `src/domain/pull-request.ts` e são cobertas por testes unitários.
 
-**Faixa de idade** (a partir da data de criação do PR):
+**Faixa de idade** (a partir da data de criação do PR). Os limites são configuráveis por repositório; o padrão é 24h e 72h:
 
 | Faixa | Condição | Visual |
 | --- | --- | --- |
-| `normal` | menos de 24h | bolinha cinza |
-| `warning` | de 24h a 72h | bolinha amarela + selo `>24h` |
-| `critical` | mais de 72h | bolinha vermelha + selo `>72h` |
+| `normal` | antes do limite de atenção | bolinha cinza |
+| `warning` | do limite de atenção ao crítico | bolinha amarela + selo `>Nh` |
+| `critical` | depois do limite crítico | bolinha vermelha + selo `>Nh` |
+
+**Outras regras** (também em `src/domain`, com testes):
+
+- **Esperando minha revisão**: sou revisor, não sou o autor, não aprovei, não pedi mudanças e o PR não está silenciado.
+- **Destino prioritário**: `hotfix/*`, depois `master`/`main`, depois `release/*`.
+- **Chave do Jira**: regex `ABC-123`, procurada no título e depois na branch de origem; opcionalmente restrita aos projetos configurados.
+- **Silêncio**: "por 24 horas", "até amanhã às 9h" (horário local do servidor) ou "até o PR mudar" (vence quando `updated_on` muda).
+- **Carga de revisão**: por pessoa, PRs em que ela é revisora e não aprovou nem pediu mudanças.
 
 **Estado de review**, avaliado nesta ordem de prioridade:
 
@@ -107,11 +127,11 @@ Aprovações do próprio autor **não contam**.
 
 ### 3.3 Configuração (`/config`)
 
-Organizada em quatro abas. Cada aba mostra no título a contagem do que está monitorado.
+Organizada em abas: Repositórios, Membros, Times, Visões, Notificações, Integrações e Atualização. As abas de cadastro mostram no título a contagem do que está monitorado.
 
 **Repositórios**
 - Botão **Sincronizar** importa (ou atualiza) a lista de repositórios do workspace a partir do Bitbucket. A sincronização preserva o que já estava marcado como monitorado e o mínimo de aprovações.
-- Tabela com checkbox **Monitorar**, nome e slug, e campo **Mín. aprovações** (0 a 20, editável só para repositórios monitorados; salva ao sair do campo ou com Enter, e Esc descarta).
+- Tabela com checkbox **Monitorar**, nome e slug, campo **Mín. aprovações** (0 a 20) e os limites de SLA **Atenção (h)** e **Crítico (h)** (em branco = 24/72; a atenção precisa ser menor que o crítico). Os campos só editam repositórios monitorados, salvam ao sair do campo ou com Enter, e Esc descarta.
 - Busca local por nome ou slug.
 
 **Membros**
@@ -122,20 +142,57 @@ Organizada em quatro abas. Cada aba mostra no título a contagem do que está mo
 
 **Times**
 - Lista de times mostrando nome, membros, quantidade de membros e quantidade de repositórios (ou "Todos os repos").
-- Botão **Novo time** e clique numa linha para editar, ambos abrindo um diálogo com nome, lista de membros monitorados e lista de repositórios monitorados (vazio significa todos).
-- Exclusão com diálogo de confirmação.
+- Botão **Novo time** e clique numa linha para editar, ambos abrindo um diálogo com nome, lista de membros monitorados (com as revisões pendentes de cada um e o selo "Menor carga") e lista de repositórios monitorados (vazio significa todos).
+- Exclusão com confirmação dentro do próprio diálogo.
 
 **Atualização**
 - Escolha do intervalo de polling: **30s, 60s ou 120s**. O mesmo valor define o tempo de vida do cache no servidor.
 - Contador de **requisições ao Bitbucket na última hora** (janela deslizante em memória, zerada quando o servidor reinicia).
 - Indicador de **rate limit ativo** com o tempo até a próxima tentativa.
 
-### 3.4 Recursos globais
+**Visões**
+- Lista das visões salvas, com link, resumo (aba, time, quantidade de filtros), renomear e excluir.
+
+**Notificações**
+- Botão para pedir a permissão do navegador e interruptores por tipo de aviso (salvos no `localStorage`).
+- Instruções para instalar o app e ter o badge na barra de tarefas.
+
+**Integrações**
+- URL do Jira e, opcionalmente, as chaves de projeto aceitas (ex.: `FUND, OPS`).
+
+### 3.4 Contra o esquecimento
+
+Um componente montado no layout (`AttentionSync`) acompanha a fila global em qualquer página:
+
+- **Título da aba**: `(N) CR Tracker`, onde N é quantos PRs esperam a sua revisão.
+- **Badge do app instalado**: o app é um PWA (`/manifest.webmanifest`, ícones gerados em `/icons/192` e `/icons/512`, service worker mínimo em `/sw.js`). Instalado pelo Chrome ou Edge, o ícone mostra N via `navigator.setAppBadge`.
+- **Notificações do navegador**, só em transições e nunca repetidas:
+  - pediram sua revisão;
+  - um PR em que você é autor ou revisor passou do SLA crítico;
+  - seu PR foi aprovado;
+  - pediram mudanças no seu PR.
+
+  O app guarda no `localStorage` o retrato anterior e os avisos já enviados; na primeira execução só registra o estado, sem disparar nada. O `tag` da notificação evita duplicatas entre abas, e clicar abre o PR.
+- **Polling em segundo plano**: com a aba oculta (ou o app minimizado), a fila global continua sendo consultada, no mínimo a cada 120s, para o badge e as notificações não ficarem parados.
+- **Silenciar com motivo** e **"Me adicionar como revisor"** ficam no menu de cada linha e no painel de detalhes. Adicionar revisor exige um token com **escopo de escrita em pull requests**; sem ele, o app explica o erro.
+
+### 3.5 Equipe (`/equipe`)
+
+- Tabela por membro monitorado com **Para revisar**, **Acima do SLA** (parte das pendentes que passou do limite de atenção) e **PRs abertos** como autor, ordenada por quem tem mais pendências.
+- Selo **"Menor carga"** em quem tem menos pendências, para escolher um revisor.
+- Filtro por time.
+
+### 3.6 Histórico
+
+Cada busca real no Bitbucket (não as respostas do cache) atualiza `pr_history`: quando o PR apareceu pela primeira vez, quando teve a primeira atividade de review, quando ficou aprovado e quando sumiu da fila (só conta como fechado se o repositório respondeu sem erro). No máximo uma vez por hora, grava um retrato agregado em `queue_snapshots`. Ainda não há tela para esses dados: eles existem para os futuros gráficos de tendência e de tempo até a primeira revisão.
+
+### 3.7 Recursos globais
 
 - **Status do token** no rodapé da sidebar: bolinha verde ("Token válido"), amarela ("Rate limit · Ns"), vermelha ("Token inválido") ou cinza ("Verificando token…"), e o total de requisições por hora. Atualiza a cada 10 segundos.
-- **Paleta de comandos** (`⌘K` / `Ctrl+K`): navegar entre as telas, recarregar a fila de PRs e trocar o tema.
-- **Atalhos de teclado** no estilo "G e depois letra": `G F` vai para a Fila de CRs e `G C` vai para a Configuração. Os atalhos são ignorados enquanto o foco está num campo de texto.
-- **Tema** escuro (padrão), claro ou do sistema, pelo menu no header ou pela paleta.
+- **Paleta de comandos** (`⌘K` / `Ctrl+K`): navegar entre as telas, abrir visões salvas, recarregar a fila de PRs e trocar o tema.
+- **Sidebar**: o item "Fila de CRs" mostra quantos PRs esperam a sua revisão, e o grupo "Visões" lista as visões salvas.
+- **Atalhos de teclado** no estilo "G e depois letra": `G F` vai para a Fila de CRs, `G E` para a Equipe e `G C` para a Configuração. Os atalhos são ignorados enquanto o foco está num campo de texto.
+- **Tema** escuro (padrão) ou claro pelo botão no header (com transição circular via View Transitions), ou também "do sistema" pela paleta.
 - **Notificações (toasts)** no canto inferior direito para sucesso e erro de sincronizações e salvamentos.
 
 ---
@@ -210,12 +267,19 @@ Todas as rotas ficam em `src/app/api` e respondem JSON. Erros seguem o formato `
 | GET | `/api/pull-requests?teamId=&force=` | Fila de PRs (com cache, filtro de time e refresh forçado) |
 | GET | `/api/status` | Validade do token, requisições na última hora e rate limit |
 | GET | `/api/config/repositories` | Lista repositórios |
-| PATCH | `/api/config/repositories/[uuid]` | Altera `monitored` e/ou `minApprovals` |
+| PATCH | `/api/config/repositories/[uuid]` | Altera `monitored`, `minApprovals`, `slaWarningHours` e/ou `slaCriticalHours` |
 | GET / POST | `/api/config/members` | Lista membros / adiciona membro manual |
 | PATCH / DELETE | `/api/config/members/[uuid]` | Altera `monitored` / remove membro |
 | GET / POST | `/api/config/teams` | Lista / cria time |
 | PUT / DELETE | `/api/config/teams/[id]` | Atualiza / exclui time |
-| GET / PUT | `/api/config/settings` | Lê / altera intervalo de polling |
+| GET / PUT | `/api/config/settings` | Lê / altera intervalo de polling e integração com o Jira |
+| GET / POST | `/api/config/views` | Lista / cria visão salva |
+| PATCH / DELETE | `/api/config/views/[id]` | Renomeia ou atualiza / exclui visão |
+| GET | `/api/me` | Dono do token (`uuid`, nome, avatar), buscado uma vez por credencial |
+| GET | `/api/pull-requests/[repoUuid]/[id]` | Descrição e últimos comentários (cache por `updated_on`) |
+| POST | `/api/pull-requests/[repoUuid]/[id]/reviewers/me` | Adiciona o dono do token como revisor (`missing_write_scope` em 401/403) |
+| POST | `/api/pull-requests/insights` | Tamanho (diffstat persistido) e build (só aprovados) de até 50 PRs |
+| PUT / DELETE | `/api/snoozes/[prKey]` | Silencia (`reason`, `kind`, `updatedOn`) / remove o silêncio |
 | POST | `/api/bitbucket/repositories/sync` | Importa repositórios do workspace |
 | POST | `/api/bitbucket/members/sync` | Importa membros do workspace (retorna `forbidden` em 403) |
 
@@ -239,13 +303,13 @@ A interface segue a linha de **ferramenta de trabalho densa e silenciosa**, pare
 │ WORKSPACE  │  ┌ Abertos ┬ >24h ┬ >72h ┬ Aprovados ┐                │  ← indicadores
 │ ▸ Fila     │  └─────────┴──────┴──────┴───────────┘                │
 │ ▸ Config.  │  [Time ▾] [Filtros…]                                 │
-│            │  ┌──────────────────────────────────────────────┐    │  ← data grid denso
+│            │  ┌──────────────────────────────────────────────┐    │  ← tabela virtualizada
 │            │  │ Idade │ Pull request │ Autor │ Aprov. │ Estado│    │
 │ ● Token ok │  └──────────────────────────────────────────────┘    │
 └────────────┴──────────────────────────────────────────────────────┘
 ```
 
-- **Sidebar** recolhível para modo só-ícones (com tooltips), estado salvo em cookie e transformada em gaveta no mobile. Contém a marca, o atalho de busca, a navegação e o status do token.
+- **Sidebar** (beUI Animated Sidebar) recolhível para trilho de ícones (`⌘B`), estado salvo em cookie e transformada em gaveta no mobile. Contém a marca, o atalho de busca, a navegação e o status do token.
 - **Header** fixo com botão da sidebar, breadcrumb ("Workspace / página atual"), busca de comandos e seletor de tema.
 - **Conteúdo** centralizado com largura máxima de `max-w-7xl` e espaçamento interno de 16px no mobile e 32px no desktop.
 - Cada página começa com um **PageHeader** padrão: título, descrição curta e ações alinhadas à direita.
@@ -265,8 +329,6 @@ Os tokens ficam em `src/app/globals.css`, definidos em **OKLCH** para os temas c
 
 Cada cor semântica tem uma variante `-foreground` para texto, ajustada separadamente em cada tema para manter contraste. O tema **escuro é o padrão**.
 
-**Superfícies e bordas.** Há três níveis de superfície: `background` (fundo da página) < `card` (cartões, tabelas, indicadores) < `popover` (elevado: popovers, menus, selects, diálogos, paleta e toasts). No tema escuro a elevação é feita só por luminosidade (0.12 → 0.16 → 0.20), sem sombras; no claro o fundo é 0.985 e cartões e popovers são brancos, com sombra leve nos elevados. As bordas usam um único token translúcido, `border` (10% de preto no claro e 10% de branco no escuro), inclusive nos anéis de popovers, diálogos e cartões (`ring-border`) e na sidebar. Separadores internos mais leves usam `border-border/60`.
-
 ### 6.4 Tipografia
 
 - **Geist Sans** para a interface e **Geist Mono** para dados técnicos.
@@ -276,28 +338,26 @@ Cada cor semântica tem uma variante `-foreground` para texto, ajustada separada
 ### 6.5 Forma e espaçamento
 
 - Raio base de **0,75rem**, com escala de `sm` (0,5rem) a `4xl` (2rem).
-- Superfícies agrupadas como cartões com borda fina e fundo `card` (`rounded-lg border bg-card`), sem sombras pesadas.
-- **Header** com fundo translúcido e `backdrop-blur` quando a página é rolada; a borda inferior só aparece depois que o conteúdo sai do topo.
-- **Linhas da fila**: hover com fundo sutil (transição de 120ms); PRs acima de 72h ganham uma borda esquerda de 2px em `destructive`, sem tingir a linha.
-- **Botões** primário, secundário e outline encolhem para `scale(0.98)` ao serem pressionados.
-- Tabelas em modo **denso**, com bordas entre linhas, cabeçalho com fundo próprio e fixo no topo durante a rolagem da fila.
+- Superfícies agrupadas como cartões com borda fina e fundo `card` (`rounded-2xl border bg-card`), sem sombras pesadas; botões, selos e campos em formato pílula (visual do beUI).
+- Tabelas com bordas entre linhas e cabeçalho com fundo próprio, fixo no topo durante a rolagem.
+- Movimento com molas do Motion (pressionar botões, indicador das abas, sidebar, modal, toasts), respeitando `prefers-reduced-motion`.
 - Ícones Lucide em tamanho pequeno, sempre acompanhando um rótulo de texto nas ações.
 
 ### 6.6 Componentes visuais próprios
 
 - **Indicador de idade**: bolinha de 8px cuja cor resume a faixa de idade, ao lado do tempo relativo.
 - **Medidor de aprovações**: barra segmentada (um segmento por aprovação exigida). Os segmentos preenchidos ficam índigo enquanto o mínimo não é atingido e ficam todos verdes quando é.
-- **Selos de estado**: `Badge` com variantes semânticas (secondary, info, destructive, success).
+- **Selos de estado**: `AnimatedBadge` do beUI com status semânticos (neutral, info, danger, success), com ícone e troca animada.
 - **Faixa de indicadores**: grade de 2 colunas no mobile e 4 no desktop, separada por bordas internas, com esqueletos durante o carregamento.
-- **Link do PR**: o título ganha cor primária ao passar o mouse e revela uma seta ↗ (que desliza 2px ao aparecer) indicando que abre fora do app.
+- **Link do PR**: o título ganha cor primária ao passar o mouse e revela uma seta ↗ indicando que abre fora do app.
 
 ### 6.7 Estados e feedback
 
-- **Carregamento**: esqueletos estáticos (sem pulso) nos indicadores, na tabela e na lista de times, com a altura exata do conteúdo real (linhas da fila de 51px); ícone de atualizar gira enquanto a requisição está em andamento; barra de progresso de 2px sob o header enquanto a fila é buscada.
+- **Carregamento**: esqueletos nos indicadores, na tabela e na lista de times; ícone de atualizar gira enquanto a requisição está em andamento.
 - **Vazio**: componente `Empty` com ícone, título, explicação e, quando faz sentido, um botão de ação.
 - **Erros e avisos**: `Alert` nas variantes `warning` e `destructive`, sempre com título curto e descrição acionável.
 - **Ações**: toasts de sucesso com números ("12 repositórios sincronizados (3 novos, 9 atualizados)") e de erro com mensagem padrão em português.
-- **Ações destrutivas**: excluir um time exige confirmação num `AlertDialog`.
+- **Ações destrutivas**: excluir um time exige uma segunda confirmação no rodapé do diálogo.
 
 ### 6.8 Responsividade
 
@@ -308,45 +368,13 @@ Cada cor semântica tem uma variante `-foreground` para texto, ajustada separada
 
 ### 6.9 Acessibilidade
 
-- Documento em `lang="pt-BR"` e toda a interface em português, incluindo os textos internos do data grid e dos filtros.
+- Documento em `lang="pt-BR"` e toda a interface em português, incluindo os textos internos dos filtros. Alguns rótulos internos dos componentes beUI (como "Toggle sidebar" e "Close command palette") seguem em inglês.
 - O medidor de aprovações usa `role="meter"` com `aria-valuenow`, `aria-valuemax` e um rótulo como "1 de 2 aprovações".
 - O status do token é anunciado por leitores de tela (`role="status"` com `aria-live="polite"`).
 - Checkboxes, campos numéricos e selects têm `aria-label` descritivo, como "Monitorar nome-do-repo".
 - Datas usam `<time dateTime>` com a data absoluta no `title`.
-- Foco visível com um único anel em todos os elementos interativos: utilitário `focus-ring` (outline de 2px na cor `ring`, offset de 2px). Links soltos herdam o mesmo anel pela camada base; linhas clicáveis que ocupam toda a largura de um contêiner usam o mesmo anel com offset para dentro.
+- Foco visível com anel na cor `ring` em links, linhas clicáveis e controles.
 - Ícones decorativos são ocultados com `aria-hidden`.
-- Com `prefers-reduced-motion`, nada se desloca nem muda de escala (ver 6.10).
-
-### 6.10 Movimento
-
-O movimento segue a mesma regra da cor: existe para comunicar mudança de estado, não para decorar. Só se animam `transform` e `opacity` (e `background-color` em destaques pontuais); a única exceção é a largura da sidebar ao recolher.
-
-**Tokens** (em `src/app/globals.css`, espelhados em `src/components/motion/tokens.ts` para o Motion):
-
-| Token | Valor | Uso |
-| --- | --- | --- |
-| `--duration-fast` | 120ms | Hover, realce da paleta, saídas de diálogos |
-| `--duration-base` | 200ms | Entradas, crossfades, troca de tema, sidebar |
-| `--duration-slow` | 320ms | Layout animation, rolagem dos números, desenho do check |
-| `--ease-out` | `cubic-bezier(0.23, 1, 0.32, 1)` | Entradas e mudanças que partem do repouso |
-| `--ease-in-out` | `cubic-bezier(0.77, 0, 0.175, 1)` | Elementos que se movem ou mudam de tamanho na tela |
-
-Em CSS use os utilitários `duration-fast`, `duration-base` e `duration-slow` (também valem para o `tw-animate-css`) e `ease-out`/`ease-in-out`. Animações com estado usam o Motion (`motion/react`); o resto usa CSS.
-
-**Padrões**:
-
-- **Atualização da fila**: barra de progresso indeterminada de 2px em `primary`, que só aparece se a busca passar de 300ms. PRs novos entram com fade + 6px e um brilho em `primary` que some em 1,5s (nunca na carga inicial nem na troca de time). PRs que saem fazem fade-out antes de serem removidos. Reordenações usam layout animation, só na página visível. Linhas são memoizadas pelo objeto do PR: um poll sem mudanças não re-renderiza nenhuma.
-- **Indicadores**: números rolam com NumberFlow; ao sair de 0, o indicador com tom recebe a cor com transição e um único pulso.
-- **Skeleton → conteúdo**: crossfade de 200ms sem salto de layout.
-- **Medidor de aprovações**: segmentos preenchem com escala/opacidade, 30ms entre eles; ao atingir o mínimo, todos passam a `success` juntos.
-- **Selos de estado**: crossfade com scale 0.96 → 1 quando o estado muda.
-- **Navegação**: `<ViewTransition>` do React em cada página faz crossfade de 150ms entre rotas. A sidebar recolhe com transição de largura e fade dos rótulos. Diálogos e a paleta ⌘K entram com scale 0.98 → 1 + fade; o realce do item ativo da paleta e o indicador das abas de `/config` deslizam via `layoutId`.
-- **Tema**: crossfade de 200ms com a View Transitions API; sem suporte, a troca é instantânea.
-- **Estados vazios**: "Fila zerada" desenha o check uma vez; os demais só fazem fade.
-
-**Restrições**: nenhum loop infinito além dos spinners de requisição e da barra de progresso; sem bounce nem entrada escalonada da tabela na carga inicial.
-
-**Movimento reduzido**: `MotionConfig reducedMotion="user"` na raiz remove transforms e layout animations do Motion e mantém os fades; animações e transições CSS ficam instantâneas; a barra de progresso vira uma faixa estática; os crossfades de rota e de tema continuam.
 
 ---
 
@@ -356,3 +384,7 @@ Em CSS use os utilitários `duration-fast`, `duration-base` e `duration-slow` (t
 - O app foi pensado para **uso local por uma pessoa**. Não há autenticação de usuários; quem acessa a porta `43123` tem acesso total à configuração.
 - O endpoint `/api/status` consulta o Bitbucket (`/user`) a cada 10 segundos por aba aberta, sem cache. Isso entra na contagem de requisições por hora e pode ser relevante se houver muitas abas abertas.
 - A trava de "Atualizar" (uma vez a cada 10 segundos) vale por conjunto de repositórios e membros monitorados, e não por time ou filtro.
+- **Badge e notificações dependem do app aberto** (aba ou PWA, mesmo minimizado). Não há servidor de push: com o navegador fechado, nada é avisado.
+- O **tamanho** custa uma chamada de diffstat por PR visível na primeira vez e de novo só quando o PR muda; o **build** custa uma chamada por PR aprovado visível a cada intervalo de polling.
+- "Até amanhã às 9h" usa o fuso horário do processo do servidor, que no uso local é o da máquina.
+- O snapshot da migração `0001` estava defasado, então `drizzle-kit generate` pede confirmações interativas; a `0002` foi escrita à mão.

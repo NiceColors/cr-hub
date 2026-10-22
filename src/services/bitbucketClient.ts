@@ -1,14 +1,9 @@
 import { createBitbucketClient } from "@/lib/bitbucket/client";
+import { recordTokenHttpStatus } from "@/lib/tokenStatus";
+import { ensureStoredCredentialsLoaded } from "@/services/storedCredentials";
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __crTrackerBitbucketClient:
-    | ReturnType<typeof createBitbucketClient>
-    | undefined;
-}
+ensureStoredCredentialsLoaded();
 
-export const bitbucketClient =
-  globalThis.__crTrackerBitbucketClient ?? createBitbucketClient();
-
-globalThis.__crTrackerBitbucketClient = bitbucketClient;
-
+export const bitbucketClient = createBitbucketClient({
+  onResponse: (status) => recordTokenHttpStatus(status),
+});

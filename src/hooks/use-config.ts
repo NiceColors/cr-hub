@@ -6,15 +6,18 @@ import {
   useQueryClient,
   type QueryKey,
 } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   configApi,
   type Member,
   type PollInterval,
   type Repository,
+  type RepositoryPatch,
+  type SavedViewInput,
   type Settings,
   type TeamInput,
 } from "@/lib/api/config";
+import { ApiError } from "@/lib/api/http";
 import { queryKeys } from "@/lib/query-keys";
 
 export function failureMessage(action: string) {
@@ -45,6 +48,21 @@ export function useStatus() {
   });
 }
 
+export function useVerifyToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: configApi.verifyToken,
+    onSuccess: (data) => {
+      qc.setQueryData(queryKeys.status, data);
+      if (data.tokenState === "valid") toast.success("Token válido.");
+      else if (data.tokenState === "rate_limited")
+        toast.warning("Token válido, mas o limite da API do Bitbucket foi atingido.");
+      else toast.error(data.error?.message ?? "Token inválido.");
+    },
+    onError: () => toast.error(failureMessage("testar o token")),
+  });
+}
+
 function useOptimisticMutation<TData, TVars>(opts: {
   queryKey: QueryKey;
   mutationFn: (vars: TVars) => Promise<unknown>;
@@ -62,11 +80,15 @@ function useOptimisticMutation<TData, TVars>(opts: {
       }
       return { previous };
     },
-    onError: (_error, _vars, context) => {
+    onError: (error, _vars, context) => {
       if (context?.previous !== undefined) {
         qc.setQueryData(opts.queryKey, context.previous);
       }
-      toast.error(failureMessage(opts.action));
+      toast.error(
+        error instanceof ApiError && error.status === 400
+          ? error.message
+          : failureMessage(opts.action),
+      );
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: opts.queryKey });
@@ -75,12 +97,11 @@ function useOptimisticMutation<TData, TVars>(opts: {
   });
 }
 
-type RepositoryPatch = { uuid: string } & Partial<
-  Pick<Repository, "monitored" | "minApprovals">
->;
-
 export function useUpdateRepository() {
-  return useOptimisticMutation<{ repositories: Repository[] }, RepositoryPatch>({
+  return useOptimisticMutation<
+    { repositories: Repository[] },
+    { uuid: string } & RepositoryPatch
+  >({
     queryKey: queryKeys.repositories,
     mutationFn: ({ uuid, ...patch }) => configApi.patchRepository(uuid, patch),
     apply: (current, { uuid, ...patch }) => ({
@@ -109,8 +130,110 @@ export function useSetPollInterval() {
   return useOptimisticMutation<Settings, PollInterval>({
     queryKey: queryKeys.settings,
     mutationFn: configApi.setPollInterval,
-    apply: (_current, pollIntervalSeconds) => ({ pollIntervalSeconds }),
+    apply: (current, pollIntervalSeconds) => ({ ...current, pollIntervalSeconds }),
     action: "salvar o intervalo de atualização",
+  });
+}
+
+export function useSetJira() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: configApi.setJira,
+    onSuccess: () => {
+      toast.success("Integração com o Jira salva.");
+      void qc.invalidateQueries({ queryKey: queryKeys.settings });
+      void qc.invalidateQueries({ queryKey: queryKeys.pullRequests });
+    },
+    onError: (error) =>
+      toast.error(error instanceof ApiError ? error.message : failureMessage("salvar o Jira")),
+  });
+}
+
+export function useCredentials() {
+  return useQuery({ queryKey: queryKeys.credentials, queryFn: configApi.credentials });
+}
+
+function invalidateIdentity(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: queryKeys.credentials });
+  void qc.invalidateQueries({ queryKey: queryKeys.status });
+  void qc.invalidateQueries({ queryKey: queryKeys.me });
+  void qc.invalidateQueries({ queryKey: queryKeys.pullRequests });
+}
+
+export function useSaveCredentials() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: configApi.saveCredentials,
+    onSuccess: () => {
+      toast.success("Credenciais do Bitbucket validadas e salvas.");
+      invalidateIdentity(qc);
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof ApiError && error.status !== 500
+          ? error.message
+          : failureMessage("salvar as credenciais"),
+      ),
+  });
+}
+
+export function useClearCredentials() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: configApi.clearCredentials,
+    onSuccess: () => {
+      toast.success("Credenciais removidas. Voltando a usar o .env.");
+      invalidateIdentity(qc);
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof ApiError && error.status === 403
+          ? error.message
+          : failureMessage("remover as credenciais"),
+      ),
+  });
+}
+
+export function useSavedViews() {
+  return useQuery({ queryKey: queryKeys.views, queryFn: configApi.views });
+}
+
+export function useCreateSavedView() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: configApi.createView,
+    onSuccess: () => {
+      toast.success("Visão salva.");
+      void qc.invalidateQueries({ queryKey: queryKeys.views });
+    },
+    onError: (error) =>
+      toast.error(error instanceof ApiError ? error.message : failureMessage("salvar a visão")),
+  });
+}
+
+export function useUpdateSavedView() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: number; input: Partial<SavedViewInput> }) =>
+      configApi.updateView(id, input),
+    onSuccess: () => {
+      toast.success("Visão atualizada.");
+      void qc.invalidateQueries({ queryKey: queryKeys.views });
+    },
+    onError: (error) =>
+      toast.error(error instanceof ApiError ? error.message : failureMessage("atualizar a visão")),
+  });
+}
+
+export function useDeleteSavedView() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: configApi.deleteView,
+    onSuccess: () => {
+      toast.success("Visão excluída.");
+      void qc.invalidateQueries({ queryKey: queryKeys.views });
+    },
+    onError: () => toast.error(failureMessage("excluir a visão")),
   });
 }
 

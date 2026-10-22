@@ -1,7 +1,7 @@
 "use client";
 
 import { SearchIcon } from "lucide-react";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Input } from "@/components/motion/input";
 
 export function TableSearch({
   value,
@@ -13,18 +13,16 @@ export function TableSearch({
   placeholder: string;
 }) {
   return (
-    <InputGroup className="h-8 w-full sm:w-64">
-      <InputGroupAddon>
-        <SearchIcon />
-      </InputGroupAddon>
-      <InputGroupInput
-        type="search"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        aria-label={placeholder}
-      />
-    </InputGroup>
+    <Input
+      type="search"
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      aria-label={placeholder}
+      leftIcon={<SearchIcon />}
+      className="w-full sm:w-64"
+      classNames={{ field: "h-8", input: "text-sm" }}
+    />
   );
 }
 

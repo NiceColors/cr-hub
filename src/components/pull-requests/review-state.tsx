@@ -1,20 +1,21 @@
-import { Badge } from "@/components/ui/badge";
+import { AnimatedBadge, type AnimatedBadgeStatus } from "@/components/motion/animated-badge";
 import type { AgeBand, ReviewState } from "@/hooks/use-pull-requests";
 import { cn } from "@/lib/utils";
 
-const REVIEW_STATE: Record<
-  ReviewState,
-  { label: string; variant: "success" | "destructive" | "info" | "secondary" }
-> = {
-  approved: { label: "Aprovado", variant: "success" },
-  changes_requested: { label: "Mudanças pedidas", variant: "destructive" },
-  in_review: { label: "Em revisão", variant: "info" },
-  waiting: { label: "Aguardando", variant: "secondary" },
+const REVIEW_STATE: Record<ReviewState, { label: string; status: AnimatedBadgeStatus }> = {
+  approved: { label: "Aprovado", status: "success" },
+  changes_requested: { label: "Mudanças pedidas", status: "danger" },
+  in_review: { label: "Em revisão", status: "info" },
+  waiting: { label: "Aguardando", status: "neutral" },
 };
 
 export function ReviewStateBadge({ state }: { state: ReviewState }) {
-  const { label, variant } = REVIEW_STATE[state];
-  return <Badge variant={variant}>{label}</Badge>;
+  const { label, status } = REVIEW_STATE[state];
+  return (
+    <AnimatedBadge status={status} size="sm">
+      {label}
+    </AnimatedBadge>
+  );
 }
 
 export function AgeIndicator({ band }: { band: AgeBand }) {

@@ -1,15 +1,7 @@
 "use client";
 
 import { MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
-import { useTheme } from "next-themes";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { ThemeToggle as BeuiThemeToggle } from "@/components/motion/theme-toggle";
 
 export const THEME_OPTIONS = [
   { value: "dark", label: "Escuro", icon: MoonIcon },
@@ -18,26 +10,14 @@ export const THEME_OPTIONS = [
 ] as const;
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
-
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon-sm" aria-label="Alterar tema" />}
-      >
-        <SunIcon className="dark:hidden" />
-        <MoonIcon className="hidden dark:block" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-36">
-        <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(String(v))}>
-          {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
-            <DropdownMenuRadioItem key={value} value={value}>
-              <Icon />
-              {label}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <BeuiThemeToggle
+      variant="circle"
+      start="top-right"
+      title="Alternar tema"
+      aria-label="Alternar entre tema claro e escuro"
+      className="size-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+      iconClassName="size-4"
+    />
   );
 }

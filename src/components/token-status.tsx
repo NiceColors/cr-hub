@@ -1,20 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { ShieldCheckIcon } from "lucide-react";
 import { useStatus, useVerifyToken } from "@/hooks/use-config";
 import { useNow } from "@/hooks/use-now";
 import { formatAgePtBR } from "@/domain/time";
 import type { Status } from "@/lib/api/config";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
+import { Button } from "@/components/motion/button/base";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/motion/popover";
 import { cn } from "@/lib/utils";
 
 export type TokenTone = "pending" | "ok" | "warning" | "error";
@@ -66,42 +59,56 @@ export function TokenStatus() {
   const { data, isLoading } = useStatus();
   const verify = useVerifyToken();
   const { tone, label } = describeTokenStatus(data, isLoading);
+  const [open, setOpen] = useState(false);
 
   return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <DropdownMenu>
-          <SidebarMenuButton
-            size="sm"
-            aria-label={`${label}. Abrir opções do token`}
-            tooltip={{ children: <VerifiedAgo checkedAt={data?.checkedAt} />, hidden: false }}
-            render={<DropdownMenuTrigger />}
+    <Popover open={open} onOpenChange={setOpen} side="top" align="start">
+      <PopoverTrigger>
+        <button
+          type="button"
+          aria-label={`${label}. Abrir opções do token`}
+          className="flex min-h-9 w-full min-w-0 items-center gap-2.5 rounded-xl bg-popover px-3 text-left text-xs outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span className="grid size-5 shrink-0 place-items-center">
+            <TokenDot tone={tone} />
+          </span>
+          <span
+            role="status"
+            aria-live="polite"
+            className="min-w-0 flex-1 truncate text-muted-foreground group-data-[state=collapsed]/sidebar:hidden"
           >
-            <span className="flex size-4 items-center justify-center">
+            {label}
+          </span>
+          <span className="shrink-0 font-mono text-muted-foreground tabular-nums group-data-[state=collapsed]/sidebar:hidden">
+            {data?.requestsLastHour ?? "—"} req/h
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-60">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-0.5 text-sm">
+            <span className="flex items-center gap-2 font-medium">
               <TokenDot tone={tone} />
-            </span>
-            <span role="status" aria-live="polite" className="text-muted-foreground">
               {label}
             </span>
-            <span className="ml-auto font-mono text-muted-foreground tabular-nums">
-              {data?.requestsLastHour ?? "—"} req/h
+            <span className="text-xs text-muted-foreground">
+              <VerifiedAgo checkedAt={data?.checkedAt} />
             </span>
-          </SidebarMenuButton>
-          <DropdownMenuContent side="top" align="start" className="min-w-56">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel className="flex flex-col gap-0.5">
-                <span className="text-foreground">{label}</span>
-                <VerifiedAgo checkedAt={data?.checkedAt} />
-              </DropdownMenuLabel>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem disabled={verify.isPending} onClick={() => verify.mutate()}>
-              <ShieldCheckIcon />
-              Testar token
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </SidebarMenuItem>
-    </SidebarMenu>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={verify.isPending}
+            onClick={() => {
+              verify.mutate();
+              setOpen(false);
+            }}
+          >
+            <ShieldCheckIcon />
+            Testar token
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

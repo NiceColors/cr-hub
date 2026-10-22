@@ -27,7 +27,7 @@ globalThis.__crTrackerTokenStatus = store;
 const INVALID_TOKEN_ERROR: TokenStatusError = {
   code: "BITBUCKET_AUTH",
   message:
-    "O Bitbucket recusou o token (401). Verifique BITBUCKET_EMAIL e BITBUCKET_API_TOKEN.",
+    "O Bitbucket recusou o token (401). Verifique o e-mail e o token em Configuração → Integrações.",
 };
 
 export function recordTokenHttpStatus(status: number, nowMs = Date.now()) {

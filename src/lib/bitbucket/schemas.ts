@@ -47,6 +47,11 @@ export const bitbucketParticipantSchema = z.object({
   role: z.string().optional().nullable(),
 });
 
+const bitbucketBranchRefSchema = z
+  .object({ branch: z.object({ name: z.string() }).optional().nullable() })
+  .optional()
+  .nullable();
+
 export const bitbucketPullRequestSchema = z.object({
   id: z.number(),
   title: z.string(),
@@ -57,7 +62,42 @@ export const bitbucketPullRequestSchema = z.object({
   created_on: z.string(),
   updated_on: z.string().optional().nullable(),
   participants: z.array(bitbucketParticipantSchema).optional().nullable(),
+  reviewers: z.array(bitbucketUserSchema).optional().nullable(),
+  comment_count: z.number().optional().nullable(),
+  task_count: z.number().optional().nullable(),
+  source: bitbucketBranchRefSchema,
+  destination: bitbucketBranchRefSchema,
 });
+
+export const bitbucketPullRequestDetailSchema = z.object({
+  id: z.number(),
+  title: z.string(),
+  updated_on: z.string().optional().nullable(),
+  summary: z.object({ raw: z.string().optional().nullable() }).optional().nullable(),
+  reviewers: z.array(z.object({ uuid: z.string() })).optional().nullable(),
+});
+
+export const bitbucketDiffstatSchema = z.object({
+  lines_added: z.number().optional().nullable(),
+  lines_removed: z.number().optional().nullable(),
+});
+
+export const bitbucketCommitStatusSchema = z.object({
+  state: z.string(),
+  name: z.string().optional().nullable(),
+  url: z.string().optional().nullable(),
+});
+
+export const bitbucketCommentSchema = z.object({
+  id: z.number(),
+  created_on: z.string(),
+  deleted: z.boolean().optional().nullable(),
+  content: z.object({ raw: z.string().optional().nullable() }).optional().nullable(),
+  user: bitbucketUserSchema.optional().nullable(),
+  inline: z.object({ path: z.string().optional().nullable() }).optional().nullable(),
+});
+
+export const bitbucketCommentPageSchema = bitbucketPaginatedSchema(bitbucketCommentSchema);
 
 export const bitbucketPullRequestListSchema = bitbucketPaginatedSchema(
   bitbucketPullRequestSchema,
@@ -66,4 +106,6 @@ export const bitbucketPullRequestListSchema = bitbucketPaginatedSchema(
 export type BitbucketRepo = z.infer<typeof bitbucketRepoSchema>;
 export type BitbucketUser = z.infer<typeof bitbucketUserSchema>;
 export type BitbucketPullRequest = z.infer<typeof bitbucketPullRequestSchema>;
+export type BitbucketPullRequestDetail = z.infer<typeof bitbucketPullRequestDetailSchema>;
+export type BitbucketComment = z.infer<typeof bitbucketCommentSchema>;
 

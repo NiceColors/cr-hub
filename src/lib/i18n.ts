@@ -1,32 +1,4 @@
-import type { DataGridI18nOverrides } from "@/components/reui/data-grid/data-grid-i18n";
 import type { FilterLabels } from "@/components/reui/filters/filters-types";
-
-export const DATA_GRID_I18N_PT: DataGridI18nOverrides = {
-  labels: {
-    sortAscending: "Crescente",
-    sortDescending: "Decrescente",
-    pinColumnStart: "Fixar à esquerda",
-    pinColumnEnd: "Fixar à direita",
-    moveColumnStart: "Mover para a esquerda",
-    moveColumnEnd: "Mover para a direita",
-    columnsMenu: "Colunas",
-    unpinColumn: (title) => `Desafixar coluna ${title}`,
-    toggleColumns: "Exibir colunas",
-    selectRow: "Selecionar linha",
-    selectAll: "Selecionar tudo",
-    loading: "Carregando…",
-    empty: "Nenhum registro.",
-    allRowsLoaded: "Todos os registros carregados",
-    rowsPerPage: "Linhas por página",
-    paginationInfo: ({ from, to, count }) => `${from}–${to} de ${count}`,
-    previousPage: "Página anterior",
-    nextPage: "Próxima página",
-    goToPage: (page) => `Ir para a página ${page}`,
-    filterSelectedCount: (count) => `${count} selecionado(s)`,
-    filterNoResults: "Nenhum resultado.",
-    filterClear: "Limpar filtros",
-  },
-};
 
 export const FILTER_LABELS_PT: Partial<FilterLabels> = {
   addFilter: "Filtrar",

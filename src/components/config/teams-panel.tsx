@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { ChevronRightIcon, PlusIcon, UsersIcon } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { AnimatedBadge } from "@/components/motion/animated-badge";
+import { Button } from "@/components/motion/button/base";
 import {
   Empty,
   EmptyContent,
@@ -40,7 +40,7 @@ export function TeamsPanel() {
         description="Times recortam a fila por membros e, opcionalmente, por repositórios."
         actions={
           <Button size="sm" onClick={openCreate}>
-            <PlusIcon data-icon="inline-start" />
+            <PlusIcon className="size-3.5" />
             Novo time
           </Button>
         }
@@ -64,13 +64,13 @@ export function TeamsPanel() {
           </EmptyHeader>
           <EmptyContent>
             <Button size="sm" variant="outline" onClick={openCreate}>
-              <PlusIcon data-icon="inline-start" />
+              <PlusIcon className="size-3.5" />
               Criar primeiro time
             </Button>
           </EmptyContent>
         </Empty>
       ) : (
-        <ul className="divide-y overflow-hidden rounded-lg border bg-card">
+        <ul className="divide-y overflow-hidden rounded-2xl border bg-card">
           {teams.map((team) => {
             const names = team.memberUuids
               .map((uuid) => memberNames.get(uuid))
@@ -89,18 +89,14 @@ export function TeamsPanel() {
                       {names || "Sem membros"}
                     </span>
                   </div>
-                  <Badge variant="secondary">
-                    <span className="font-mono">{team.memberUuids.length}</span> membro(s)
-                  </Badge>
-                  <Badge variant="outline">
-                    {team.repositoryUuids.length ? (
-                      <>
-                        <span className="font-mono">{team.repositoryUuids.length}</span> repo(s)
-                      </>
-                    ) : (
-                      "Todos os repos"
-                    )}
-                  </Badge>
+                  <AnimatedBadge status="info" size="sm" showIcon={false}>
+                    {`${team.memberUuids.length} membro(s)`}
+                  </AnimatedBadge>
+                  <AnimatedBadge size="sm" showIcon={false}>
+                    {team.repositoryUuids.length
+                      ? `${team.repositoryUuids.length} repo(s)`
+                      : "Todos os repos"}
+                  </AnimatedBadge>
                   <ChevronRightIcon className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
                 </button>
               </li>

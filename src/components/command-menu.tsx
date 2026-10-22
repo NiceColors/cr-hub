@@ -4,18 +4,10 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { RefreshCwIcon } from "lucide-react";
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-  CommandShortcut,
-} from "@/components/ui/command";
+import { BookmarkIcon, RefreshCwIcon } from "lucide-react";
+import { CommandPalette, type CommandItem } from "@/components/motion/command-palette";
 import { NAV_ITEMS } from "@/components/nav-items";
+import { useSavedViews } from "@/hooks/use-config";
 import { THEME_OPTIONS } from "@/components/theme-toggle";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -51,11 +43,6 @@ export function CommandMenuProvider({ children }: { children: React.ReactNode })
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        setOpen((o) => !o);
-        return;
-      }
       if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) {
         return;
       }
@@ -98,61 +85,52 @@ function CommandMenu() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { setTheme } = useTheme();
+  const views = useSavedViews().data?.views;
 
-  function run(action: () => void) {
-    setOpen(false);
-    action();
-  }
+  const items = useMemo<CommandItem[]>(
+    () => [
+      ...NAV_ITEMS.map((item) => ({
+        id: `nav:${item.href}`,
+        label: item.title,
+        group: "Navegação",
+        hint: item.shortcut,
+        icon: item.icon,
+        onSelect: () => router.push(item.href),
+      })),
+      ...(views ?? []).map((view) => ({
+        id: `view:${view.id}`,
+        label: view.name,
+        group: "Visões",
+        keywords: ["visão", "filtro"],
+        icon: BookmarkIcon,
+        onSelect: () => router.push(`/?view=${view.id}`),
+      })),
+      {
+        id: "action:refresh",
+        label: "Recarregar fila de PRs",
+        group: "Ações",
+        keywords: ["atualizar", "refresh"],
+        icon: RefreshCwIcon,
+        onSelect: () => void queryClient.refetchQueries({ queryKey: queryKeys.pullRequests }),
+      },
+      ...THEME_OPTIONS.map(({ value, label, icon }) => ({
+        id: `theme:${value}`,
+        label: `Tema ${label.toLowerCase()}`,
+        group: "Tema",
+        icon,
+        onSelect: () => setTheme(value),
+      })),
+    ],
+    [router, queryClient, setTheme, views],
+  );
 
   return (
-    <CommandDialog
+    <CommandPalette
+      items={items}
       open={open}
       onOpenChange={setOpen}
-      title="Paleta de comandos"
-      description="Navegue ou execute uma ação"
-    >
-      <CommandInput placeholder="Digite um comando ou busque…" />
-      <CommandList>
-        <CommandEmpty>Nenhum comando encontrado.</CommandEmpty>
-        <CommandGroup heading="Navegação">
-          {NAV_ITEMS.map((item) => (
-            <CommandItem
-              key={item.href}
-              value={item.title}
-              onSelect={() => run(() => router.push(item.href))}
-            >
-              <item.icon />
-              {item.title}
-              <CommandShortcut>{item.shortcut}</CommandShortcut>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-        <CommandSeparator />
-        <CommandGroup heading="Ações">
-          <CommandItem
-            value="Recarregar fila de PRs"
-            onSelect={() =>
-              run(() => void queryClient.refetchQueries({ queryKey: queryKeys.pullRequests }))
-            }
-          >
-            <RefreshCwIcon />
-            Recarregar fila de PRs
-          </CommandItem>
-        </CommandGroup>
-        <CommandSeparator />
-        <CommandGroup heading="Tema">
-          {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
-            <CommandItem
-              key={value}
-              value={`Tema ${label}`}
-              onSelect={() => run(() => setTheme(value))}
-            >
-              <Icon />
-              Tema {label.toLowerCase()}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      </CommandList>
-    </CommandDialog>
+      placeholder="Digite um comando ou busque…"
+      emptyMessage="Nenhum comando encontrado."
+    />
   );
 }

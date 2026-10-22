@@ -1,5 +1,7 @@
+import { AnimatedNumber } from "@/components/motion/animated-number";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { PullRequestItem } from "@/hooks/use-pull-requests";
+import { isReadyToMerge, prKey } from "@/domain/pull-request";
+import type { PullRequestInsight, PullRequestItem } from "@/hooks/use-pull-requests";
 import { cn } from "@/lib/utils";
 
 type Stat = {
@@ -9,34 +11,44 @@ type Stat = {
   tone?: "warning" | "destructive" | "success";
 };
 
-function computeStats(prs: PullRequestItem[]): Stat[] {
-  let over24 = 0;
-  let over72 = 0;
-  let approved = 0;
+function computeStats(
+  prs: PullRequestItem[],
+  insights: Record<string, PullRequestInsight>,
+): Stat[] {
+  let warning = 0;
+  let critical = 0;
+  let ready = 0;
   for (const pr of prs) {
-    if (pr.ageBand !== "normal") over24++;
-    if (pr.ageBand === "critical") over72++;
-    if (pr.reviewState === "approved") approved++;
+    if (pr.ageBand !== "normal") warning++;
+    if (pr.ageBand === "critical") critical++;
+    if (isReadyToMerge(pr, insights[prKey(pr.repository.uuid, pr.id)]?.build)) ready++;
   }
   return [
     { label: "Abertos", value: prs.length, hint: "no filtro atual" },
-    { label: "Acima de 24h", value: over24, hint: "precisam de atenção", tone: "warning" },
-    { label: "Acima de 72h", value: over72, hint: "críticos", tone: "destructive" },
-    { label: "Aprovados", value: approved, hint: "prontos para merge", tone: "success" },
+    { label: "Acima da atenção", value: warning, hint: "SLA de atenção", tone: "warning" },
+    { label: "Críticos", value: critical, hint: "SLA crítico", tone: "destructive" },
+    {
+      label: "Prontos para merge",
+      value: ready,
+      hint: "aprovados, sem tarefas",
+      tone: "success",
+    },
   ];
 }
 
 export function PullRequestStats({
   pullRequests,
+  insights,
   isLoading,
 }: {
   pullRequests: PullRequestItem[];
+  insights: Record<string, PullRequestInsight>;
   isLoading: boolean;
 }) {
-  const stats = computeStats(pullRequests);
+  const stats = computeStats(pullRequests, insights);
 
   return (
-    <dl className="grid grid-cols-2 overflow-hidden rounded-lg border bg-card lg:grid-cols-4">
+    <dl className="grid grid-cols-2 overflow-hidden rounded-2xl border bg-card lg:grid-cols-4">
       {stats.map((stat, i) => (
         <div
           key={stat.label}
@@ -52,16 +64,16 @@ export function PullRequestStats({
             {isLoading ? (
               <Skeleton className="h-7 w-10" />
             ) : (
-              <span
+              <AnimatedNumber
+                value={stat.value}
+                duration={0.6}
                 className={cn(
-                  "font-mono text-2xl font-semibold tabular-nums",
+                  "font-mono text-2xl font-semibold",
                   stat.value > 0 && stat.tone === "warning" && "text-warning-foreground",
                   stat.value > 0 && stat.tone === "destructive" && "text-destructive-foreground",
                   stat.value > 0 && stat.tone === "success" && "text-success-foreground",
                 )}
-              >
-                {stat.value}
-              </span>
+              />
             )}
             <span className="truncate text-xs text-muted-foreground">{stat.hint}</span>
           </dd>

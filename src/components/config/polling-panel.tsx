@@ -1,8 +1,8 @@
 "use client";
 
 import { ShieldCheckIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Button } from "@/components/motion/button/base";
+import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionHeader } from "@/components/config/section-header";
 import { TokenDot, VerifiedAgo, describeTokenStatus } from "@/components/token-status";
@@ -29,7 +29,7 @@ export function PollingPanel() {
         description="Intervalo do polling automático da fila e TTL do cache no servidor."
       />
 
-      <dl className="divide-y overflow-hidden rounded-lg border bg-card">
+      <dl className="divide-y overflow-hidden rounded-2xl border bg-card">
         <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1">
             <dt className="text-sm font-medium">Intervalo de polling</dt>
@@ -41,23 +41,22 @@ export function PollingPanel() {
             {settings.isLoading ? (
               <Skeleton className="h-8 w-40" />
             ) : (
-              <ToggleGroup
-                variant="outline"
-                size="sm"
-                spacing={0}
-                value={current ? [String(current)] : []}
+              <Tabs
+                variant="segment"
+                value={current ? String(current) : ""}
                 onValueChange={(value) => {
-                  const next = Number(value[0]) as PollInterval;
+                  const next = Number(value) as PollInterval;
                   if (next && next !== current) setPoll.mutate(next);
                 }}
-                aria-label="Intervalo de polling"
               >
-                {POLL_INTERVALS.map((sec) => (
-                  <ToggleGroupItem key={sec} value={String(sec)} className="font-mono">
-                    {sec}s
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
+                <TabsList aria-label="Intervalo de polling" className="border border-border">
+                  {POLL_INTERVALS.map((sec) => (
+                    <TabsTrigger key={sec} value={String(sec)} className="px-3 py-1 font-mono text-xs">
+                      {sec}s
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
             )}
           </dd>
         </div>
@@ -86,7 +85,7 @@ export function PollingPanel() {
               onClick={() => verify.mutate()}
               disabled={verify.isPending}
             >
-              <ShieldCheckIcon data-icon="inline-start" />
+              <ShieldCheckIcon className="size-3.5" />
               Testar token
             </Button>
           </dd>

@@ -2,12 +2,13 @@ import { db } from "@/lib/db";
 import {
   members,
   repositories,
+  savedViews,
   settings,
   teamMembers,
   teamRepositories,
   teams,
 } from "@/lib/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { clearPullRequestsCache } from "@/lib/pullRequestsCache";
 
 export type PollIntervalSeconds = 30 | 60 | 120;
@@ -28,17 +29,36 @@ export function setPollIntervalSeconds(pollIntervalSeconds: PollIntervalSeconds)
   clearPullRequestsCache();
 }
 
+export function setJiraSettings(input: { baseUrl: string | null; projectKeys: string | null }) {
+  getSettings();
+  db.update(settings)
+    .set({ jiraBaseUrl: input.baseUrl, jiraProjectKeys: input.projectKeys })
+    .where(eq(settings.id, 1))
+    .run();
+  clearPullRequestsCache();
+}
+
 export function listRepositories() {
   return db.select().from(repositories).all();
 }
 
-export function patchRepository(
-  uuid: string,
-  patch: { monitored?: boolean; minApprovals?: number },
-) {
+export function getRepository(uuid: string) {
+  return db.select().from(repositories).where(eq(repositories.uuid, uuid)).get() ?? null;
+}
+
+export type RepositoryPatch = {
+  monitored?: boolean;
+  minApprovals?: number;
+  slaWarningHours?: number | null;
+  slaCriticalHours?: number | null;
+};
+
+export function patchRepository(uuid: string, patch: RepositoryPatch) {
   const toSet: Partial<typeof repositories.$inferInsert> = {};
   if (typeof patch.monitored === "boolean") toSet.monitored = patch.monitored;
   if (typeof patch.minApprovals === "number") toSet.minApprovals = patch.minApprovals;
+  if (patch.slaWarningHours !== undefined) toSet.slaWarningHours = patch.slaWarningHours;
+  if (patch.slaCriticalHours !== undefined) toSet.slaCriticalHours = patch.slaCriticalHours;
   db.update(repositories).set(toSet).where(eq(repositories.uuid, uuid)).run();
   clearPullRequestsCache();
 }
@@ -237,6 +257,71 @@ export function getTeam(id: number) {
     memberUuids: memberRows.map((r) => r.memberUuid),
     repositoryUuids: repoRows.map((r) => r.repositoryUuid),
   };
+}
+
+export type SavedViewTab = "all" | "mine" | "authored";
+
+export type SavedView = {
+  id: number;
+  name: string;
+  tab: SavedViewTab;
+  teamId: number | null;
+  filterQuery: unknown;
+  showSnoozed: boolean;
+  createdAt: number;
+};
+
+export type SavedViewInput = Omit<SavedView, "id" | "createdAt">;
+
+function toSavedView(row: typeof savedViews.$inferSelect): SavedView {
+  let filterQuery: unknown = null;
+  try {
+    filterQuery = JSON.parse(row.filterQuery);
+  } catch {
+    filterQuery = null;
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    tab: row.tab as SavedViewTab,
+    teamId: row.teamId,
+    filterQuery,
+    showSnoozed: row.showSnoozed,
+    createdAt: row.createdAt.getTime(),
+  };
+}
+
+export function listSavedViews(): SavedView[] {
+  return db.select().from(savedViews).orderBy(asc(savedViews.name)).all().map(toSavedView);
+}
+
+export function createSavedView(input: SavedViewInput) {
+  const created = db
+    .insert(savedViews)
+    .values({
+      name: input.name.trim(),
+      tab: input.tab,
+      teamId: input.teamId,
+      filterQuery: JSON.stringify(input.filterQuery ?? null),
+      showSnoozed: input.showSnoozed,
+      createdAt: new Date(),
+    })
+    .run();
+  return Number(created.lastInsertRowid);
+}
+
+export function updateSavedView(id: number, input: Partial<SavedViewInput>) {
+  const toSet: Partial<typeof savedViews.$inferInsert> = {};
+  if (input.name !== undefined) toSet.name = input.name.trim();
+  if (input.tab !== undefined) toSet.tab = input.tab;
+  if (input.teamId !== undefined) toSet.teamId = input.teamId;
+  if (input.filterQuery !== undefined) toSet.filterQuery = JSON.stringify(input.filterQuery);
+  if (input.showSnoozed !== undefined) toSet.showSnoozed = input.showSnoozed;
+  db.update(savedViews).set(toSet).where(eq(savedViews.id, id)).run();
+}
+
+export function deleteSavedView(id: number) {
+  db.delete(savedViews).where(eq(savedViews.id, id)).run();
 }
 
 export function listMonitoredRepositories() {

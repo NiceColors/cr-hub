@@ -23,6 +23,17 @@ describe("buildOpenPrQuery", () => {
     expect(encoded).toContain("%7Babc-123%7D");
   });
 
+  test("inclui o revisor como alternativa ao autor", () => {
+    const q = buildOpenPrQuery(["{u1}"], "{me}");
+    expect(q).toBe('state="OPEN" AND (author.uuid="{u1}" OR reviewers.uuid="{me}")');
+  });
+
+  test("cada lote repete o filtro de revisor", () => {
+    const uuids = Array.from({ length: 26 }, (_, i) => `{u${i}}`);
+    const batches = buildOpenPrQueryBatches(uuids, 25, "{me}");
+    expect(batches.every((q) => q.includes('reviewers.uuid="{me}"'))).toBe(true);
+  });
+
   test("divide em lotes acima de 25", () => {
     const uuids = Array.from({ length: 26 }, (_, i) => `{u${i}}`);
     const batches = buildOpenPrQueryBatches(uuids, 25);

@@ -7,6 +7,8 @@ export const repositorySchema = z.object({
   name: z.string(),
   monitored: z.boolean(),
   minApprovals: z.number(),
+  slaWarningHours: z.number().nullable(),
+  slaCriticalHours: z.number().nullable(),
 });
 
 export const memberSchema = z.object({
@@ -29,7 +31,31 @@ export const teamSchema = z.object({
 const repositoriesResponse = z.object({ repositories: z.array(repositorySchema) });
 const membersResponse = z.object({ members: z.array(memberSchema) });
 const teamsResponse = z.object({ teams: z.array(teamSchema) });
-const settingsResponse = z.object({ pollIntervalSeconds: z.number() });
+const settingsResponse = z.object({
+  pollIntervalSeconds: z.number(),
+  jiraBaseUrl: z.string().nullable(),
+  jiraProjectKeys: z.string().nullable(),
+});
+
+const credentialsResponse = z.object({
+  editable: z.boolean(),
+  source: z.enum(["database", "env", "none"]),
+  workspace: z.string().nullable(),
+  email: z.string().nullable(),
+  tokenHint: z.string().nullable(),
+});
+
+export const savedViewSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  tab: z.enum(["all", "mine", "authored"]),
+  teamId: z.number().nullable(),
+  filterQuery: z.unknown(),
+  showSnoozed: z.boolean(),
+  createdAt: z.number(),
+});
+
+const savedViewsResponse = z.object({ views: z.array(savedViewSchema) });
 
 const statusResponse = z.object({
   tokenState: z.enum(["unknown", "valid", "invalid", "rate_limited"]),
@@ -63,6 +89,14 @@ export type Settings = z.infer<typeof settingsResponse>;
 export type Status = z.infer<typeof statusResponse>;
 export type PollInterval = 30 | 60 | 120;
 export type TeamInput = Pick<Team, "name" | "memberUuids" | "repositoryUuids">;
+export type SavedView = z.infer<typeof savedViewSchema>;
+export type SavedViewInput = Omit<SavedView, "id" | "createdAt">;
+export type RepositoryPatch = Partial<
+  Pick<Repository, "monitored" | "minApprovals" | "slaWarningHours" | "slaCriticalHours">
+>;
+export type JiraSettings = Pick<Settings, "jiraBaseUrl" | "jiraProjectKeys">;
+export type Credentials = z.infer<typeof credentialsResponse>;
+export type CredentialsInput = { workspace: string; email: string; apiToken: string | null };
 
 export const POLL_INTERVALS: readonly PollInterval[] = [30, 60, 120];
 
@@ -74,10 +108,19 @@ export const configApi = {
   status: () => getJson("/api/status", statusResponse, { acceptErrorBody: true }),
   verifyToken: () => sendJson("/api/status/verify", "POST", undefined, statusResponse),
 
-  patchRepository: (
-    uuid: string,
-    patch: Partial<Pick<Repository, "monitored" | "minApprovals">>,
-  ) => sendJson(`/api/config/repositories/${encodeURIComponent(uuid)}`, "PATCH", patch),
+  patchRepository: (uuid: string, patch: RepositoryPatch) =>
+    sendJson(`/api/config/repositories/${encodeURIComponent(uuid)}`, "PATCH", patch),
+  setJira: (input: JiraSettings) => sendJson("/api/config/settings", "PUT", input),
+  credentials: () => getJson("/api/config/credentials", credentialsResponse),
+  saveCredentials: (input: CredentialsInput) =>
+    sendJson("/api/config/credentials", "PUT", input),
+  clearCredentials: () => sendJson("/api/config/credentials", "DELETE"),
+  views: () => getJson("/api/config/views", savedViewsResponse),
+  createView: (input: SavedViewInput) =>
+    sendJson("/api/config/views", "POST", input, z.object({ id: z.number() })),
+  updateView: (id: number, input: Partial<SavedViewInput>) =>
+    sendJson(`/api/config/views/${id}`, "PATCH", input),
+  deleteView: (id: number) => sendJson(`/api/config/views/${id}`, "DELETE"),
   patchMember: (uuid: string, patch: Partial<Pick<Member, "monitored">>) =>
     sendJson(`/api/config/members/${encodeURIComponent(uuid)}`, "PATCH", patch),
   addMember: (input: { uuid: string; nickname: string | null }) =>

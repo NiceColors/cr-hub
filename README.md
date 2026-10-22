@@ -18,7 +18,13 @@ No Bitbucket Cloud, crie um **App password**:
   - **Repositories**: Read
   - **Pull requests**: Read
 
-## Configurar variáveis de ambiente
+## Configurar credenciais
+
+O jeito mais simples é pela interface: abra **Configuração → Integrações** em `http://localhost:43123` e preencha workspace, e-mail e API token. O app valida as credenciais no Bitbucket antes de salvar, guarda no SQLite local (`.data/`) e nunca devolve o token ao navegador. Essa tela só aceita alterações quando o app é acessado pelo próprio computador (`localhost`/`127.0.0.1`); por isso os scripts `dev` e `start` escutam apenas em `127.0.0.1`.
+
+As credenciais salvas pela interface têm prioridade. Sem elas, valem as variáveis de ambiente abaixo.
+
+### Variáveis de ambiente (alternativa)
 
 Crie um `.env.local` a partir de `.env.example`:
 

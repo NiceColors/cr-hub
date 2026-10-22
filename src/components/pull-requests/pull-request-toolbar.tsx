@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { UsersIcon } from "lucide-react";
 import { Filters } from "@/components/reui/filters/filters";
 import type { FilterField, FilterQuery } from "@/components/reui/filters/filters-types";
@@ -9,7 +10,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@/components/motion/select";
 import { FILTER_OPERATOR_LABELS_PT } from "@/components/pull-requests/filter-query";
 import type { Team } from "@/lib/api/config";
 import { FILTER_LABELS_PT } from "@/lib/i18n";
@@ -23,6 +24,7 @@ export function PullRequestToolbar({
   fields,
   query,
   onQueryChange,
+  actions,
 }: {
   teams: Team[];
   teamId: number | null;
@@ -30,6 +32,7 @@ export function PullRequestToolbar({
   fields: FilterField[];
   query: FilterQuery;
   onQueryChange: (query: FilterQuery) => void;
+  actions?: ReactNode;
 }) {
   const items = [
     { value: ALL_TEAMS, label: "Todos os times" },
@@ -39,15 +42,16 @@ export function PullRequestToolbar({
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
       <Select
-        items={items}
         value={teamId === null ? ALL_TEAMS : String(teamId)}
-        onValueChange={(value) =>
-          onTeamChange(!value || value === ALL_TEAMS ? null : Number(value))
-        }
+        onValueChange={(value) => onTeamChange(value === ALL_TEAMS ? null : Number(value))}
+        className="z-30 w-full shrink-0 sm:w-52"
       >
-        <SelectTrigger size="sm" className="w-full sm:w-48" aria-label="Time">
-          <UsersIcon className="text-muted-foreground" />
-          <SelectValue />
+        <SelectTrigger className="h-8 py-0">
+          <span className="flex min-w-0 items-center gap-2">
+            <UsersIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+            <span className="sr-only">Time:</span>
+            <SelectValue className="truncate" />
+          </span>
         </SelectTrigger>
         <SelectContent>
           {items.map((item) => (
@@ -69,6 +73,8 @@ export function PullRequestToolbar({
           showClear
         />
       </div>
+
+      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
   );
 }

@@ -1,39 +1,33 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useTable, type ColumnDef } from "@tanstack/react-table";
 import { RefreshCwIcon } from "lucide-react";
-import {
-  DataGrid,
-  DataGridContainer,
-  dataGridFeatures,
-  type DataGridFeatures,
-} from "@/components/reui/data-grid/data-grid";
-import { DataGridTable } from "@/components/reui/data-grid/data-grid-table";
-import { DataGridPagination } from "@/components/reui/data-grid/data-grid-pagination";
-import { DataGridColumnHeader } from "@/components/reui/data-grid/data-grid-column-header";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { Button } from "@/components/motion/button/base";
+import { Checkbox } from "@/components/motion/checkbox";
+import { Input } from "@/components/motion/input";
+import { Table, type TableColumn } from "@/components/motion/table";
 import { SectionHeader } from "@/components/config/section-header";
 import { TableSearch, matchesSearch } from "@/components/config/table-search";
 import { useRepositories, useSyncRepositories, useUpdateRepository } from "@/hooks/use-config";
 import type { Repository } from "@/lib/api/config";
-import { DATA_GRID_I18N_PT } from "@/lib/i18n";
+import { fitTableHeight } from "@/lib/table-height";
+import { DEFAULT_SLA } from "@/domain/pull-request";
 import { cn } from "@/lib/utils";
 
-const PAGE_SIZE = 50;
+const ROW_HEIGHT = 56;
 const MIN_APPROVALS = 0;
 const MAX_APPROVALS = 20;
+
+function repositoryRowId(repository: Repository) {
+  return repository.uuid;
+}
 
 function MonitorCheckbox({ repository }: { repository: Repository }) {
   const update = useUpdateRepository();
   return (
     <Checkbox
       checked={repository.monitored}
-      onCheckedChange={(checked) =>
-        update.mutate({ uuid: repository.uuid, monitored: Boolean(checked) })
-      }
+      onCheckedChange={(checked) => update.mutate({ uuid: repository.uuid, monitored: checked })}
       aria-label={`Monitorar ${repository.name}`}
     />
   );
@@ -59,7 +53,7 @@ function MinApprovalsInput({ repository }: { repository: Repository }) {
       min={MIN_APPROVALS}
       max={MAX_APPROVALS}
       value={draft ?? String(repository.minApprovals)}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={setDraft}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") e.currentTarget.blur();
@@ -67,48 +61,121 @@ function MinApprovalsInput({ repository }: { repository: Repository }) {
       }}
       disabled={!repository.monitored}
       aria-label={`Mínimo de aprovações para ${repository.name}`}
-      className="h-8 w-20 font-mono tabular-nums"
+      className="w-20"
+      classNames={{ field: "h-8", input: "font-mono text-sm tabular-nums" }}
     />
   );
 }
 
-const columns: ColumnDef<DataGridFeatures, Repository>[] = [
+const MAX_SLA_HOURS = 24 * 30;
+
+function SlaInput({
+  repository,
+  field,
+  placeholder,
+  label,
+}: {
+  repository: Repository;
+  field: "slaWarningHours" | "slaCriticalHours";
+  placeholder: number;
+  label: string;
+}) {
+  const update = useUpdateRepository();
+  const [draft, setDraft] = useState<string | null>(null);
+  const current = repository[field];
+
+  function commit() {
+    if (draft === null) return;
+    const trimmed = draft.trim();
+    setDraft(null);
+    const next = trimmed === "" ? null : Number(trimmed);
+    if (next !== null && (!Number.isInteger(next) || next < 1 || next > MAX_SLA_HOURS)) return;
+    if (next === current) return;
+    update.mutate({ uuid: repository.uuid, [field]: next });
+  }
+
+  return (
+    <Input
+      type="number"
+      inputMode="numeric"
+      min={1}
+      max={MAX_SLA_HOURS}
+      value={draft ?? (current === null ? "" : String(current))}
+      placeholder={String(placeholder)}
+      onChange={setDraft}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") setDraft(null);
+      }}
+      disabled={!repository.monitored}
+      aria-label={`${label} para ${repository.name}, em horas`}
+      className="w-20"
+      classNames={{ field: "h-8", input: "font-mono text-sm tabular-nums" }}
+    />
+  );
+}
+
+const columns: TableColumn<Repository>[] = [
   {
-    id: "monitored",
-    accessorFn: (r) => (r.monitored ? 1 : 0),
-    header: ({ column }) => <DataGridColumnHeader column={column} title="Monitorar" />,
-    sortFn: "basic",
-    size: 120,
-    cell: ({ row }) => <MonitorCheckbox repository={row.original} />,
+    key: "monitored",
+    header: "Monitorar",
+    sortable: true,
+    sortValue: (r) => (r.monitored ? 1 : 0),
+    width: "130px",
+    cell: (r) => <MonitorCheckbox repository={r} />,
   },
   {
-    id: "name",
-    accessorFn: (r) => r.name,
-    header: ({ column }) => <DataGridColumnHeader column={column} title="Repositório" />,
-    size: 420,
-    cell: ({ row }) => (
+    key: "name",
+    header: "Repositório",
+    sortable: true,
+    sortValue: (r) => r.name,
+    cell: (r) => (
       <div className="flex min-w-0 flex-col gap-0.5">
-        <span
-          className={cn(
-            "truncate font-medium",
-            !row.original.monitored && "text-muted-foreground",
-          )}
-        >
-          {row.original.name}
+        <span className={cn("truncate font-medium", !r.monitored && "text-muted-foreground")}>
+          {r.name}
         </span>
-        <span className="truncate font-mono text-xs text-muted-foreground">
-          {row.original.slug}
-        </span>
+        <span className="truncate font-mono text-xs text-muted-foreground">{r.slug}</span>
       </div>
     ),
   },
   {
-    id: "minApprovals",
-    accessorFn: (r) => r.minApprovals,
-    header: ({ column }) => <DataGridColumnHeader column={column} title="Mín. aprovações" />,
-    sortFn: "basic",
-    size: 160,
-    cell: ({ row }) => <MinApprovalsInput repository={row.original} />,
+    key: "minApprovals",
+    header: "Mín. aprovações",
+    sortable: true,
+    sortValue: (r) => r.minApprovals,
+    width: "160px",
+    cell: (r) => <MinApprovalsInput repository={r} />,
+  },
+  {
+    key: "slaWarningHours",
+    header: "Atenção (h)",
+    sortable: true,
+    sortValue: (r) => r.slaWarningHours ?? DEFAULT_SLA.warningHours,
+    width: "130px",
+    cell: (r) => (
+      <SlaInput
+        repository={r}
+        field="slaWarningHours"
+        placeholder={DEFAULT_SLA.warningHours}
+        label="Limite de atenção"
+      />
+    ),
+  },
+  {
+    key: "slaCriticalHours",
+    header: "Crítico (h)",
+    sortable: true,
+    sortValue: (r) => r.slaCriticalHours ?? DEFAULT_SLA.criticalHours,
+    width: "130px",
+    cell: (r) => (
+      <SlaInput
+        repository={r}
+        field="slaCriticalHours"
+        placeholder={DEFAULT_SLA.criticalHours}
+        label="Limite crítico"
+      />
+    ),
   },
 ];
 
@@ -124,17 +191,6 @@ export function RepositoriesPanel() {
   );
   const monitoredCount = repositories?.filter((r) => r.monitored).length ?? 0;
 
-  const table = useTable({
-    features: dataGridFeatures,
-    data: visible,
-    columns,
-    getRowId: (r) => r.uuid,
-    initialState: {
-      sorting: [{ id: "name", desc: false }],
-      pagination: { pageIndex: 0, pageSize: PAGE_SIZE },
-    },
-  });
-
   return (
     <div className="flex flex-col gap-4">
       <SectionHeader
@@ -143,7 +199,8 @@ export function RepositoriesPanel() {
           <>
             <span className="font-mono tabular-nums">{monitoredCount}</span> monitorado(s) de{" "}
             <span className="font-mono tabular-nums">{repositories?.length ?? 0}</span>. O mínimo
-            de aprovações define quando um PR conta como aprovado.
+            de aprovações define quando um PR conta como aprovado. Os limites de SLA em branco
+            usam o padrão de 24h e 72h.
           </>
         }
         actions={
@@ -155,39 +212,28 @@ export function RepositoriesPanel() {
               onClick={() => sync.mutate()}
               disabled={sync.isPending}
             >
-              <RefreshCwIcon
-                data-icon="inline-start"
-                className={cn(sync.isPending && "animate-spin")}
-              />
+              <RefreshCwIcon className={cn("size-3.5", sync.isPending && "animate-spin")} />
               Sincronizar
             </Button>
           </>
         }
       />
 
-      <DataGrid
-        table={table}
-        recordCount={visible.length}
-        isLoading={isLoading}
-        i18n={DATA_GRID_I18N_PT}
-        emptyMessage={
+      <Table
+        data={visible}
+        columns={columns}
+        getRowId={repositoryRowId}
+        defaultSort={{ key: "name", direction: "asc" }}
+        rowHeight={ROW_HEIGHT}
+        height={fitTableHeight(visible.length, ROW_HEIGHT)}
+        loading={isLoading}
+        emptyState={
           search
             ? "Nenhum repositório corresponde à busca."
             : "Nenhum repositório. Clique em Sincronizar para importar do Bitbucket."
         }
-        tableLayout={{
-          dense: true,
-          rowBorder: true,
-          headerBorder: true,
-          headerBackground: true,
-          width: "fixed",
-        }}
-      >
-        <DataGridContainer className="rounded-lg border bg-card">
-          <DataGridTable />
-        </DataGridContainer>
-        {visible.length > PAGE_SIZE ? <DataGridPagination /> : null}
-      </DataGrid>
+        className="rounded-2xl"
+      />
     </div>
   );
 }

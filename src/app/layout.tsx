@@ -1,15 +1,14 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/app/providers";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CommandMenuProvider } from "@/components/command-menu";
-import { AppSidebar } from "@/components/app-sidebar";
-import { AppHeader } from "@/components/app-header";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { AppShell } from "@/components/app-shell";
+import { AttentionSync } from "@/components/attention-sync";
+import { Toaster } from "@/components/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Toaster } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
 
 const geistSans = Geist({
@@ -25,6 +24,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "CR Tracker",
   description: "Monitoramento local de Pull Requests abertos no Bitbucket Cloud",
+  applicationName: "CR Tracker",
+  icons: { apple: "/icons/192" },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+  ],
 };
 
 export default async function RootLayout({
@@ -49,21 +57,14 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <Providers>
+            <AttentionSync />
             <TooltipProvider delay={200}>
               <CommandMenuProvider>
-                <SidebarProvider defaultOpen={sidebarOpen}>
-                  <AppSidebar />
-                  <SidebarInset>
-                    <AppHeader />
-                    <div className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 md:px-8 md:py-8">
-                      {children}
-                    </div>
-                  </SidebarInset>
-                </SidebarProvider>
+                <AppShell defaultOpen={sidebarOpen}>{children}</AppShell>
               </CommandMenuProvider>
             </TooltipProvider>
           </Providers>
-          <Toaster position="bottom-right" />
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

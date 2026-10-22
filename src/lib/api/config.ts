@@ -32,7 +32,9 @@ const teamsResponse = z.object({ teams: z.array(teamSchema) });
 const settingsResponse = z.object({ pollIntervalSeconds: z.number() });
 
 const statusResponse = z.object({
+  tokenState: z.enum(["unknown", "valid", "invalid", "rate_limited"]),
   tokenValid: z.boolean(),
+  checkedAt: z.string().nullable(),
   requestsLastHour: z.number(),
   retryAfterSeconds: z.number().optional(),
   error: z.object({ code: z.string(), message: z.string() }).optional(),
@@ -70,6 +72,7 @@ export const configApi = {
   teams: () => getJson("/api/config/teams", teamsResponse),
   settings: () => getJson("/api/config/settings", settingsResponse),
   status: () => getJson("/api/status", statusResponse, { acceptErrorBody: true }),
+  verifyToken: () => sendJson("/api/status/verify", "POST", undefined, statusResponse),
 
   patchRepository: (
     uuid: string,

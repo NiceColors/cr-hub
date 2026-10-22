@@ -44,11 +44,16 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+export type BitbucketCallHooks = {
+  onResponse?: (status: number) => void;
+};
+
 type FetchJsonOptions = {
   method?: "GET" | "POST" | "PUT" | "DELETE";
   signal?: AbortSignal;
   maxAttempts?: number; // default: 3
   timeoutMs?: number; // default: 10s
+  hooks?: BitbucketCallHooks;
 };
 
 export async function bitbucketFetchJson<T>(
@@ -82,6 +87,8 @@ export async function bitbucketFetchJson<T>(
       },
       signal,
     }).finally(() => clearTimeout(timeoutId));
+
+    opts.hooks?.onResponse?.(res.status);
 
     if (res.ok) {
       const json = await res.json();
@@ -125,7 +132,7 @@ export async function bitbucketFetchJson<T>(
 export async function fetchAllPages<T>(
   firstUrlOrPath: string,
   pageSchema: z.ZodType<{ values: T[]; next?: string }>,
-  opts: { maxPages?: number } = {},
+  opts: { maxPages?: number; hooks?: BitbucketCallHooks } = {},
 ): Promise<T[]> {
   const out: T[] = [];
   let next: string | undefined = firstUrlOrPath;
@@ -142,6 +149,7 @@ export async function fetchAllPages<T>(
     const page: { values: T[]; next?: string } = await bitbucketFetchJson(
       next,
       pageSchema,
+      { hooks: opts.hooks },
     );
     out.push(...page.values);
     next = page.next;
@@ -201,7 +209,7 @@ export interface BitbucketClient {
   getCurrentUser(): Promise<z.infer<typeof bitbucketUserSchema>>;
 }
 
-export function createBitbucketClient(): BitbucketClient {
+export function createBitbucketClient(hooks: BitbucketCallHooks = {}): BitbucketClient {
   return {
     async listRepositories() {
       const workspace = getWorkspaceFromEnv();
@@ -211,7 +219,7 @@ export function createBitbucketClient(): BitbucketClient {
         fields: "values.uuid,values.slug,values.name,next",
       });
       const first = `/repositories/${encodeURIComponent(workspace)}?${params.toString()}`;
-      const rows = await fetchAllPages(first, paginatedUnknownSchema);
+      const rows = await fetchAllPages(first, paginatedUnknownSchema, { hooks });
       return parseItems("repositories", rows as unknown as unknown[], bitbucketRepoSchema);
     },
 
@@ -223,7 +231,7 @@ export function createBitbucketClient(): BitbucketClient {
           "values.user.uuid,values.user.nickname,values.user.display_name,values.user.links.avatar.href,next",
       });
       const first = `/workspaces/${encodeURIComponent(workspace)}/members?${params.toString()}`;
-      const rows = await fetchAllPages(first, paginatedUnknownSchema);
+      const rows = await fetchAllPages(first, paginatedUnknownSchema, { hooks });
       return parseItems("members", rows as unknown as unknown[], bitbucketWorkspaceMemberSchema);
     },
 
@@ -241,7 +249,7 @@ export function createBitbucketClient(): BitbucketClient {
             "values.id,values.title,values.links.html,values.author,values.created_on,values.updated_on,values.participants,next",
         });
         const first = `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests?${params.toString()}`;
-        const rows = await fetchAllPages(first, paginatedUnknownSchema);
+        const rows = await fetchAllPages(first, paginatedUnknownSchema, { hooks });
         all.push(
           ...parseItems(
             `pullrequests(${repoSlug})`,
@@ -260,7 +268,9 @@ export function createBitbucketClient(): BitbucketClient {
       const params = new URLSearchParams({
         fields: "uuid,nickname,display_name,links.avatar.href",
       });
-      return await bitbucketFetchJson(`/user?${params.toString()}`, bitbucketUserSchema);
+      return await bitbucketFetchJson(`/user?${params.toString()}`, bitbucketUserSchema, {
+        hooks,
+      });
     },
   };
 }

@@ -45,6 +45,21 @@ export function useStatus() {
   });
 }
 
+export function useVerifyToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: configApi.verifyToken,
+    onSuccess: (data) => {
+      qc.setQueryData(queryKeys.status, data);
+      if (data.tokenState === "valid") toast.success("Token válido.");
+      else if (data.tokenState === "rate_limited")
+        toast.warning("Token válido, mas o limite da API do Bitbucket foi atingido.");
+      else toast.error(data.error?.message ?? "Token inválido.");
+    },
+    onError: () => toast.error(failureMessage("testar o token")),
+  });
+}
+
 function useOptimisticMutation<TData, TVars>(opts: {
   queryKey: QueryKey;
   mutationFn: (vars: TVars) => Promise<unknown>;

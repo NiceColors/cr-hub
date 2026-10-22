@@ -2,9 +2,24 @@
 
 Aplicação web **local** para centralizar e acompanhar Pull Requests **abertos** no Bitbucket Cloud, por usuários e repositórios monitorados.
 
+## Início rápido
+
+Com o [Node.js](https://nodejs.org) LTS instalado (20.9 ou mais novo):
+
+```bash
+git clone git@github.com:NiceColors/cr-hub.git
+cd cr-hub
+npm run setup
+npm run dev
+```
+
+O `npm run setup` instala as dependências, cria o `.env.local`, cria o banco SQLite em `.data/` e aplica as migrations. No fim, ele pergunta se você quer informar o token do Bitbucket na hora (e valida antes de salvar). Se preferir, pule e configure depois em **Configuração → Integrações**, em `http://localhost:43123`. Esse é o único passo manual.
+
+Pode rodar de novo quando quiser (por exemplo, depois de um `git pull`): ele não apaga o `.env.local` nem o banco, só instala o que faltar e aplica migrations novas. Para não ter perguntas: `npm run setup -- --yes`.
+
 ## Pré-requisitos
 
-- Node.js (recomendado \(>= 22\))
+- Node.js 20.9 ou mais novo (recomendado: a versão LTS)
 - Conta no Bitbucket Cloud com acesso ao workspace
 
 ## Criar o API token (App password) no Bitbucket
@@ -16,7 +31,7 @@ No Bitbucket Cloud, crie um **App password**:
   - **Account**: Read
   - **Workspace membership**: Read
   - **Repositories**: Read
-  - **Pull requests**: Read
+  - **Pull requests**: Read (e **Write**, se quiser usar "Me adicionar como revisor")
 
 ## Configurar credenciais
 
@@ -45,11 +60,13 @@ Nota:
 
 ## Banco (SQLite + Drizzle)
 
-Aplicar migrations:
+O `npm run setup` já faz isso. Para aplicar migrations novas manualmente:
 
 ```bash
 npm run db:migrate
 ```
+
+O comando lê o `DATABASE_URL` dos mesmos arquivos `.env*` que o Next, então migrations e app sempre usam o mesmo banco.
 
 ## Rodar o app
 
@@ -63,6 +80,7 @@ Abra `http://localhost:43123`.
 
 ## Scripts
 
+- `npm run setup`: configuração inicial (dependências, `.env.local`, banco e migrations)
 - `npm run dev`: dev server
 - `npm run build`: build
 - `npm run start`: produção local

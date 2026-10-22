@@ -1,13 +1,29 @@
+"use client";
+
+import { memo, useEffect, useRef } from "react";
+import NumberFlow from "@number-flow/react";
+import { useAnimate, useReducedMotion } from "motion/react";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DURATION,
+  EASE_IN_OUT,
+  EASE_IN_OUT_CSS,
+  EASE_OUT_CSS,
+} from "@/components/motion/tokens";
 import type { PullRequestItem } from "@/hooks/use-pull-requests";
 import { cn } from "@/lib/utils";
+
+type Tone = "warning" | "destructive" | "success";
 
 type Stat = {
   label: string;
   value: number;
   hint: string;
-  tone?: "warning" | "destructive" | "success";
+  tone?: Tone;
 };
+
+const ROLL_TIMING = { duration: DURATION.slow * 1000, easing: EASE_IN_OUT_CSS };
+const FADE_TIMING = { duration: DURATION.base * 1000, easing: EASE_OUT_CSS };
 
 function computeStats(prs: PullRequestItem[]): Stat[] {
   let over24 = 0;
@@ -26,7 +42,49 @@ function computeStats(prs: PullRequestItem[]): Stat[] {
   ];
 }
 
-export function PullRequestStats({
+/**
+ * Rolls between values; a toned stat leaving zero takes its color with a
+ * transition and pulses once. Mounts with the loaded value, so the first
+ * value never pulses.
+ */
+function StatNumber({ value, tone }: { value: number; tone?: Tone }) {
+  const [scope, animate] = useAnimate<HTMLSpanElement>();
+  const reduceMotion = useReducedMotion();
+  const previous = useRef(value);
+
+  useEffect(() => {
+    const was = previous.current;
+    previous.current = value;
+    if (tone && was === 0 && value > 0 && !reduceMotion) {
+      animate(
+        scope.current,
+        { scale: [1, 1.08, 1] },
+        { duration: DURATION.slow, ease: EASE_IN_OUT },
+      );
+    }
+  }, [value, tone, reduceMotion, animate, scope]);
+
+  return (
+    <span
+      ref={scope}
+      data-tone={value > 0 ? tone : undefined}
+      className={cn(
+        "inline-block origin-left font-mono text-2xl font-semibold tabular-nums",
+        "transition-colors duration-slow ease-out",
+        "data-[tone=warning]:text-warning-foreground data-[tone=destructive]:text-destructive-foreground data-[tone=success]:text-success-foreground",
+      )}
+    >
+      <NumberFlow
+        value={value}
+        transformTiming={ROLL_TIMING}
+        spinTiming={ROLL_TIMING}
+        opacityTiming={FADE_TIMING}
+      />
+    </span>
+  );
+}
+
+export const PullRequestStats = memo(function PullRequestStats({
   pullRequests,
   isLoading,
 }: {
@@ -52,16 +110,7 @@ export function PullRequestStats({
             {isLoading ? (
               <Skeleton className="h-7 w-10" />
             ) : (
-              <span
-                className={cn(
-                  "font-mono text-2xl font-semibold tabular-nums",
-                  stat.value > 0 && stat.tone === "warning" && "text-warning-foreground",
-                  stat.value > 0 && stat.tone === "destructive" && "text-destructive-foreground",
-                  stat.value > 0 && stat.tone === "success" && "text-success-foreground",
-                )}
-              >
-                {stat.value}
-              </span>
+              <StatNumber value={stat.value} tone={stat.tone} />
             )}
             <span className="truncate text-xs text-muted-foreground">{stat.hint}</span>
           </dd>
@@ -69,4 +118,4 @@ export function PullRequestStats({
       ))}
     </dl>
   );
-}
+});

@@ -40,7 +40,7 @@ export function AppSidebar() {
               <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-primary font-mono text-xs font-semibold text-primary-foreground">
                 CR
               </div>
-              <div className="grid flex-1 text-left leading-tight">
+              <div className="grid flex-1 text-left leading-tight whitespace-nowrap transition-opacity duration-base ease-in-out group-data-[collapsible=icon]:opacity-0">
                 <span className="truncate text-sm font-semibold">CR Tracker</span>
                 <span className="truncate text-xs text-muted-foreground">
                   Bitbucket Cloud
@@ -63,7 +63,9 @@ export function AppSidebar() {
                 >
                   <SearchIcon />
                   <span>Buscar</span>
-                  <Kbd className="ml-auto group-data-[collapsible=icon]:hidden">⌘K</Kbd>
+                  <Kbd className="ml-auto transition-opacity duration-base ease-in-out group-data-[collapsible=icon]:opacity-0">
+                    ⌘K
+                  </Kbd>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

@@ -14,7 +14,6 @@ import {
   DataGridContainer,
   dataGridFeatures,
 } from "@/components/reui/data-grid/data-grid";
-import { DataGridTable } from "@/components/reui/data-grid/data-grid-table";
 import { DataGridPagination } from "@/components/reui/data-grid/data-grid-pagination";
 import type { FilterField, FilterQuery } from "@/components/reui/filters/filters-types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -28,10 +27,16 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { PageHeader } from "@/components/page-header";
+import { DrawnCheckIcon } from "@/components/motion/drawn-check-icon";
 import { RelativeTime } from "@/components/relative-time";
 import { pullRequestColumns } from "@/components/pull-requests/pull-request-columns";
 import { PullRequestStats } from "@/components/pull-requests/pull-request-stats";
+import { PullRequestTable } from "@/components/pull-requests/pull-request-table";
 import { PullRequestToolbar } from "@/components/pull-requests/pull-request-toolbar";
+import {
+  pullRequestRowId,
+  useQueueChanges,
+} from "@/components/pull-requests/use-queue-changes";
 import {
   EMPTY_FILTER_QUERY,
   matchesQuery,
@@ -85,6 +90,7 @@ export function PullRequestsView() {
   });
 
   const pullRequests = query.data?.pullRequests ?? NO_PULL_REQUESTS;
+  const { arrivals, departures } = useQueueChanges(query.data?.pullRequests, teamId);
 
   const monitoredRepositories = useMemo(
     () => (repositoriesQuery.data?.repositories ?? []).filter((r) => r.monitored),
@@ -105,7 +111,7 @@ export function PullRequestsView() {
     features: dataGridFeatures,
     data: visible,
     columns: pullRequestColumns,
-    getRowId: (pr) => `${pr.repository.uuid}:${pr.id}`,
+    getRowId: pullRequestRowId,
     state: { sorting },
     onSortingChange: setSorting,
     initialState: { pagination: { pageIndex: 0, pageSize: PAGE_SIZE } },
@@ -115,6 +121,7 @@ export function PullRequestsView() {
   const hasConfig = monitoredRepositories.length > 0;
   const isInitialLoad = query.isLoading || repositoriesQuery.isLoading;
   const data = query.data;
+  const presenceKey = `${teamId}|${JSON.stringify(filterQuery)}|${table.state.pagination.pageIndex}`;
 
   return (
     <div className="flex flex-col gap-6">
@@ -218,7 +225,11 @@ export function PullRequestsView() {
           }}
         >
           <DataGridContainer className="rounded-lg border bg-card">
-            <DataGridTable />
+            <PullRequestTable
+              arrivals={arrivals}
+              departures={departures}
+              presenceKey={presenceKey}
+            />
           </DataGridContainer>
           {visible.length > PAGE_SIZE ? <DataGridPagination /> : null}
         </DataGrid>
@@ -253,7 +264,7 @@ function QueueEmptyState({ hasConfig, filtered }: { hasConfig: boolean; filtered
     <Empty className="py-10">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <CircleCheckIcon />
+          {filtered ? <CircleCheckIcon /> : <DrawnCheckIcon />}
         </EmptyMedia>
         <EmptyTitle>{filtered ? "Nenhum PR neste filtro" : "Fila zerada"}</EmptyTitle>
         <EmptyDescription>

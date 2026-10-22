@@ -75,6 +75,7 @@ export function usePullRequests(opts: {
   });
 
   const refresh = useMutation({
+    mutationKey: queryKeys.pullRequests,
     mutationFn: () => fetchPullRequests(opts.teamId, true),
     onSuccess: (data) => queryClient.setQueryData(key, data),
     onError: () => toast.error(failureMessage("atualizar a fila")),

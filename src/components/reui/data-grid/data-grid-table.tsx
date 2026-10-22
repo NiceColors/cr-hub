@@ -2577,7 +2577,7 @@ function DataGridTableEmpty() {
         <div
           ref={handleMessageRef}
           data-slot="data-grid-table-empty"
-          className="sticky start-0"
+          className="sticky start-0 animate-in fade-in-0 duration-base ease-out"
         >
           {props.emptyMessage || i18n.labels.empty}
         </div>

@@ -3,9 +3,10 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
+import { motion } from "motion/react";
 import { RefreshCwIcon } from "lucide-react";
 import {
+  Command,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -16,7 +17,8 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { NAV_ITEMS } from "@/components/nav-items";
-import { THEME_OPTIONS } from "@/components/theme-toggle";
+import { THEME_OPTIONS, useThemeTransition } from "@/components/theme-toggle";
+import { DURATION, EASE_OUT } from "@/components/motion/tokens";
 import { queryKeys } from "@/lib/query-keys";
 
 type CommandMenuContextValue = {
@@ -95,14 +97,6 @@ export function CommandMenuProvider({ children }: { children: React.ReactNode })
 
 function CommandMenu() {
   const { open, setOpen } = useCommandMenu();
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  const { setTheme } = useTheme();
-
-  function run(action: () => void) {
-    setOpen(false);
-    action();
-  }
 
   return (
     <CommandDialog
@@ -111,48 +105,94 @@ function CommandMenu() {
       title="Paleta de comandos"
       description="Navegue ou execute uma ação"
     >
+      <CommandPalette onDone={() => setOpen(false)} />
+    </CommandDialog>
+  );
+}
+
+/** Mounted with the dialog content, so the active item resets on every open. */
+function CommandPalette({ onDone }: { onDone: () => void }) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const setTheme = useThemeTransition();
+  const [active, setActive] = useState("");
+
+  function run(action: () => void) {
+    onDone();
+    action();
+  }
+
+  return (
+    <Command value={active} onValueChange={setActive}>
       <CommandInput placeholder="Digite um comando ou busque…" />
       <CommandList>
         <CommandEmpty>Nenhum comando encontrado.</CommandEmpty>
         <CommandGroup heading="Navegação">
           {NAV_ITEMS.map((item) => (
-            <CommandItem
+            <PaletteItem
               key={item.href}
               value={item.title}
+              active={active}
               onSelect={() => run(() => router.push(item.href))}
             >
               <item.icon />
               {item.title}
               <CommandShortcut>{item.shortcut}</CommandShortcut>
-            </CommandItem>
+            </PaletteItem>
           ))}
         </CommandGroup>
         <CommandSeparator />
         <CommandGroup heading="Ações">
-          <CommandItem
+          <PaletteItem
             value="Recarregar fila de PRs"
+            active={active}
             onSelect={() =>
               run(() => void queryClient.refetchQueries({ queryKey: queryKeys.pullRequests }))
             }
           >
             <RefreshCwIcon />
             Recarregar fila de PRs
-          </CommandItem>
+          </PaletteItem>
         </CommandGroup>
         <CommandSeparator />
         <CommandGroup heading="Tema">
           {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
-            <CommandItem
+            <PaletteItem
               key={value}
               value={`Tema ${label}`}
+              active={active}
               onSelect={() => run(() => setTheme(value))}
             >
               <Icon />
               Tema {label.toLowerCase()}
-            </CommandItem>
+            </PaletteItem>
           ))}
         </CommandGroup>
       </CommandList>
-    </CommandDialog>
+    </Command>
+  );
+}
+
+const HIGHLIGHT_TRANSITION = { duration: DURATION.fast, ease: EASE_OUT };
+
+/** The active item's background is one shared element that slides between items. */
+function PaletteItem({
+  value,
+  active,
+  children,
+  ...props
+}: React.ComponentProps<typeof CommandItem> & { value: string; active: string }) {
+  return (
+    <CommandItem value={value} className="isolate data-selected:bg-transparent" {...props}>
+      {active === value ? (
+        <motion.span
+          layoutId="command-menu-highlight"
+          aria-hidden
+          className="absolute inset-0 -z-10 rounded-lg bg-accent"
+          transition={HIGHLIGHT_TRANSITION}
+        />
+      ) : null}
+      {children}
+    </CommandItem>
   );
 }

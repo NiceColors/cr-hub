@@ -265,6 +265,8 @@ Os tokens ficam em `src/app/globals.css`, definidos em **OKLCH** para os temas c
 
 Cada cor semântica tem uma variante `-foreground` para texto, ajustada separadamente em cada tema para manter contraste. O tema **escuro é o padrão**.
 
+**Superfícies e bordas.** Há três níveis de superfície: `background` (fundo da página) < `card` (cartões, tabelas, indicadores) < `popover` (elevado: popovers, menus, selects, diálogos, paleta e toasts). No tema escuro a elevação é feita só por luminosidade (0.12 → 0.16 → 0.20), sem sombras; no claro o fundo é 0.985 e cartões e popovers são brancos, com sombra leve nos elevados. As bordas usam um único token translúcido, `border` (10% de preto no claro e 10% de branco no escuro), inclusive nos anéis de popovers, diálogos e cartões (`ring-border`) e na sidebar. Separadores internos mais leves usam `border-border/60`.
+
 ### 6.4 Tipografia
 
 - **Geist Sans** para a interface e **Geist Mono** para dados técnicos.
@@ -275,6 +277,9 @@ Cada cor semântica tem uma variante `-foreground` para texto, ajustada separada
 
 - Raio base de **0,75rem**, com escala de `sm` (0,5rem) a `4xl` (2rem).
 - Superfícies agrupadas como cartões com borda fina e fundo `card` (`rounded-lg border bg-card`), sem sombras pesadas.
+- **Header** com fundo translúcido e `backdrop-blur` quando a página é rolada; a borda inferior só aparece depois que o conteúdo sai do topo.
+- **Linhas da fila**: hover com fundo sutil (transição de 120ms); PRs acima de 72h ganham uma borda esquerda de 2px em `destructive`, sem tingir a linha.
+- **Botões** primário, secundário e outline encolhem para `scale(0.98)` ao serem pressionados.
 - Tabelas em modo **denso**, com bordas entre linhas, cabeçalho com fundo próprio e fixo no topo durante a rolagem da fila.
 - Ícones Lucide em tamanho pequeno, sempre acompanhando um rótulo de texto nas ações.
 
@@ -284,11 +289,11 @@ Cada cor semântica tem uma variante `-foreground` para texto, ajustada separada
 - **Medidor de aprovações**: barra segmentada (um segmento por aprovação exigida). Os segmentos preenchidos ficam índigo enquanto o mínimo não é atingido e ficam todos verdes quando é.
 - **Selos de estado**: `Badge` com variantes semânticas (secondary, info, destructive, success).
 - **Faixa de indicadores**: grade de 2 colunas no mobile e 4 no desktop, separada por bordas internas, com esqueletos durante o carregamento.
-- **Link do PR**: o título ganha cor primária ao passar o mouse e revela uma seta ↗ indicando que abre fora do app.
+- **Link do PR**: o título ganha cor primária ao passar o mouse e revela uma seta ↗ (que desliza 2px ao aparecer) indicando que abre fora do app.
 
 ### 6.7 Estados e feedback
 
-- **Carregamento**: esqueletos nos indicadores, na tabela e na lista de times; ícone de atualizar gira enquanto a requisição está em andamento.
+- **Carregamento**: esqueletos estáticos (sem pulso) nos indicadores, na tabela e na lista de times, com a altura exata do conteúdo real (linhas da fila de 51px); ícone de atualizar gira enquanto a requisição está em andamento; barra de progresso de 2px sob o header enquanto a fila é buscada.
 - **Vazio**: componente `Empty` com ícone, título, explicação e, quando faz sentido, um botão de ação.
 - **Erros e avisos**: `Alert` nas variantes `warning` e `destructive`, sempre com título curto e descrição acionável.
 - **Ações**: toasts de sucesso com números ("12 repositórios sincronizados (3 novos, 9 atualizados)") e de erro com mensagem padrão em português.
@@ -308,8 +313,40 @@ Cada cor semântica tem uma variante `-foreground` para texto, ajustada separada
 - O status do token é anunciado por leitores de tela (`role="status"` com `aria-live="polite"`).
 - Checkboxes, campos numéricos e selects têm `aria-label` descritivo, como "Monitorar nome-do-repo".
 - Datas usam `<time dateTime>` com a data absoluta no `title`.
-- Foco visível com anel na cor `ring` em links, linhas clicáveis e controles.
+- Foco visível com um único anel em todos os elementos interativos: utilitário `focus-ring` (outline de 2px na cor `ring`, offset de 2px). Links soltos herdam o mesmo anel pela camada base; linhas clicáveis que ocupam toda a largura de um contêiner usam o mesmo anel com offset para dentro.
 - Ícones decorativos são ocultados com `aria-hidden`.
+- Com `prefers-reduced-motion`, nada se desloca nem muda de escala (ver 6.10).
+
+### 6.10 Movimento
+
+O movimento segue a mesma regra da cor: existe para comunicar mudança de estado, não para decorar. Só se animam `transform` e `opacity` (e `background-color` em destaques pontuais); a única exceção é a largura da sidebar ao recolher.
+
+**Tokens** (em `src/app/globals.css`, espelhados em `src/components/motion/tokens.ts` para o Motion):
+
+| Token | Valor | Uso |
+| --- | --- | --- |
+| `--duration-fast` | 120ms | Hover, realce da paleta, saídas de diálogos |
+| `--duration-base` | 200ms | Entradas, crossfades, troca de tema, sidebar |
+| `--duration-slow` | 320ms | Layout animation, rolagem dos números, desenho do check |
+| `--ease-out` | `cubic-bezier(0.23, 1, 0.32, 1)` | Entradas e mudanças que partem do repouso |
+| `--ease-in-out` | `cubic-bezier(0.77, 0, 0.175, 1)` | Elementos que se movem ou mudam de tamanho na tela |
+
+Em CSS use os utilitários `duration-fast`, `duration-base` e `duration-slow` (também valem para o `tw-animate-css`) e `ease-out`/`ease-in-out`. Animações com estado usam o Motion (`motion/react`); o resto usa CSS.
+
+**Padrões**:
+
+- **Atualização da fila**: barra de progresso indeterminada de 2px em `primary`, que só aparece se a busca passar de 300ms. PRs novos entram com fade + 6px e um brilho em `primary` que some em 1,5s (nunca na carga inicial nem na troca de time). PRs que saem fazem fade-out antes de serem removidos. Reordenações usam layout animation, só na página visível. Linhas são memoizadas pelo objeto do PR: um poll sem mudanças não re-renderiza nenhuma.
+- **Indicadores**: números rolam com NumberFlow; ao sair de 0, o indicador com tom recebe a cor com transição e um único pulso.
+- **Skeleton → conteúdo**: crossfade de 200ms sem salto de layout.
+- **Medidor de aprovações**: segmentos preenchem com escala/opacidade, 30ms entre eles; ao atingir o mínimo, todos passam a `success` juntos.
+- **Selos de estado**: crossfade com scale 0.96 → 1 quando o estado muda.
+- **Navegação**: `<ViewTransition>` do React em cada página faz crossfade de 150ms entre rotas. A sidebar recolhe com transição de largura e fade dos rótulos. Diálogos e a paleta ⌘K entram com scale 0.98 → 1 + fade; o realce do item ativo da paleta e o indicador das abas de `/config` deslizam via `layoutId`.
+- **Tema**: crossfade de 200ms com a View Transitions API; sem suporte, a troca é instantânea.
+- **Estados vazios**: "Fila zerada" desenha o check uma vez; os demais só fazem fade.
+
+**Restrições**: nenhum loop infinito além dos spinners de requisição e da barra de progresso; sem bounce nem entrada escalonada da tabela na carga inicial.
+
+**Movimento reduzido**: `MotionConfig reducedMotion="user"` na raiz remove transforms e layout animations do Motion e mantém os fades; animações e transições CSS ficam instantâneas; a barra de progresso vira uma faixa estática; os crossfades de rota e de tema continuam.
 
 ---
 

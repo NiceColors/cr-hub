@@ -62,7 +62,31 @@
   --radius-4xl: 2rem;
 }
 
+/* Motion curves. Mirrored in src/components/motion/tokens.ts for Motion (JS). */
+@theme {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+/* Motion durations. Also feed tw-animate-css, which reads --tw-duration. */
+@utility duration-fast {
+  --tw-duration: var(--duration-fast);
+  transition-duration: var(--duration-fast);
+}
+@utility duration-base {
+  --tw-duration: var(--duration-base);
+  transition-duration: var(--duration-base);
+}
+@utility duration-slow {
+  --tw-duration: var(--duration-slow);
+  transition-duration: var(--duration-slow);
+}
+
 :root {
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+
   --radius: 0.75rem;
 
   --background: oklch(0.99 0 0);
@@ -171,5 +195,20 @@
   pre,
   samp {
     @apply font-mono;
+  }
+}
+
+/* Reduced motion: CSS animations and transitions resolve instantly. Motion
+   (WAAPI) is handled by <MotionConfig reducedMotion="user">, which keeps
+   opacity fades and drops transforms and layout animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
   }
 }

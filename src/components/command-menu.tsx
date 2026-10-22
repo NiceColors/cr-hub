@@ -3,7 +3,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
 import { motion } from "motion/react";
 import { RefreshCwIcon } from "lucide-react";
 import {
@@ -18,7 +17,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { NAV_ITEMS } from "@/components/nav-items";
-import { THEME_OPTIONS } from "@/components/theme-toggle";
+import { THEME_OPTIONS, useThemeTransition } from "@/components/theme-toggle";
 import { DURATION, EASE_OUT } from "@/components/motion/tokens";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -115,7 +114,7 @@ function CommandMenu() {
 function CommandPalette({ onDone }: { onDone: () => void }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { setTheme } = useTheme();
+  const setTheme = useThemeTransition();
   const [active, setActive] = useState("");
 
   function run(action: () => void) {

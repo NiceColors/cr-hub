@@ -239,9 +239,13 @@
 ::view-transition-new(.page-enter) {
   animation: 150ms var(--ease-out) both page-fade-in;
 }
+/* The theme switch sets these on <html> for its whole-page crossfade (the
+   view transition pseudo-elements inherit from it). A compound selector like
+   html[data-x]::view-transition-old(root) is dropped by the CSS pipeline. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 150ms;
+  animation-duration: var(--root-transition-duration, 150ms);
+  animation-timing-function: var(--root-transition-ease, ease);
 }
 
 /* Reduced motion: CSS animations and transitions resolve instantly. Motion

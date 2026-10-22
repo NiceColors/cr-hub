@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useRef } from "react";
 import NumberFlow from "@number-flow/react";
-import { useAnimate, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DURATION,
@@ -69,7 +69,9 @@ function StatNumber({ value, tone }: { value: number; tone?: Tone }) {
       ref={scope}
       data-tone={value > 0 ? tone : undefined}
       className={cn(
-        "inline-block origin-left font-mono text-2xl font-semibold tabular-nums",
+        // NumberFlow's box is taller than the line (its roll mask); a fixed
+        // line-high box keeps the strip at the skeleton's height.
+        "inline-flex h-8 origin-left items-center font-mono text-2xl font-semibold tabular-nums",
         "transition-colors duration-slow ease-out",
         "data-[tone=warning]:text-warning-foreground data-[tone=destructive]:text-destructive-foreground data-[tone=success]:text-success-foreground",
       )}
@@ -107,11 +109,37 @@ export const PullRequestStats = memo(function PullRequestStats({
         >
           <dt className="text-xs text-muted-foreground">{stat.label}</dt>
           <dd className="flex items-baseline gap-2">
-            {isLoading ? (
-              <Skeleton className="h-7 w-10" />
-            ) : (
-              <StatNumber value={stat.value} tone={stat.tone} />
-            )}
+            {/* Skeleton and number share one grid cell, so they crossfade in
+                place; the skeleton carries a transparent digit to keep the
+                same baseline and the hint text from shifting. */}
+            <span className="grid">
+              <AnimatePresence initial={false}>
+                {isLoading ? (
+                  <motion.span
+                    key="skeleton"
+                    aria-hidden
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="[grid-area:1/1]"
+                  >
+                    <Skeleton className="inline-block w-10 font-mono text-2xl font-semibold text-transparent">
+                      0
+                    </Skeleton>
+                  </motion.span>
+                ) : (
+                  <motion.span
+                    key="value"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="[grid-area:1/1]"
+                  >
+                    <StatNumber value={stat.value} tone={stat.tone} />
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </span>
             <span className="truncate text-xs text-muted-foreground">{stat.hint}</span>
           </dd>
         </div>

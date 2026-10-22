@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, LayoutGroup, motion, type Variants } from "motion/react";
 import { flexRender, type Row } from "@tanstack/react-table";
 import { useDataGrid, type DataGridFeatures } from "@/components/reui/data-grid/data-grid";
@@ -42,42 +42,32 @@ export function PullRequestTable({
   presenceKey: string;
 }) {
   const { table, isLoading } = useDataGrid<PullRequestItem>();
-  const headerGroups = getDataGridTableMergedHeaderGroups(table);
   const rows = table.getRowModel().rows;
-  const columns = table.getVisibleLeafColumns();
+  const columnIds = table.getVisibleLeafColumns().map((column) => column.id);
+
+  // Rows fade in only when they replace the skeleton, not when cached data
+  // is already there on mount.
+  const [sawSkeleton, setSawSkeleton] = useState(isLoading);
+  if (isLoading && !sawSkeleton) setSawSkeleton(true);
 
   return (
     <DataGridTableViewport>
       <DataGridTableBase>
-        <DataGridTableHead>
-          {headerGroups.map((group) => (
-            <DataGridTableHeadRow key={group.id} rowId={group.id}>
-              {[...group.startHeaders, ...group.centerHeaders, ...group.endHeaders].map(
-                (header) => (
-                  <DataGridTableHeadRowCell
-                    key={header.id}
-                    header={header}
-                    coveredHeaders={group.coveredHeaders.get(header.id)}
-                  >
-                    {renderDataGridTableHeadCellContent(header)}
-                  </DataGridTableHeadRowCell>
-                ),
-              )}
-            </DataGridTableHeadRow>
-          ))}
-        </DataGridTableHead>
-        <tbody data-slot="data-grid-table-body">
-          {isLoading ? (
-            Array.from({ length: SKELETON_ROWS }, (_, i) => (
-              <tr key={i} className="[&:not(:last-child)>td]:border-b">
-                {columns.map((column) => (
-                  <td key={column.id} className="px-2 py-1.5 align-middle">
-                    <Skeleton className="h-4 w-3/4" />
-                  </td>
-                ))}
-              </tr>
-            ))
-          ) : (
+        <QueueHead />
+        {isLoading ? (
+          // Invisible spacers hold the skeleton's height in the flow; the
+          // visible skeleton is the overlay below, so it can fade out over the
+          // rows that replace it.
+          <tbody key="skeleton" aria-hidden className="invisible">
+            <SkeletonRows columnIds={columnIds} />
+          </tbody>
+        ) : (
+          <motion.tbody
+            key="rows"
+            data-slot="data-grid-table-body"
+            initial={sawSkeleton ? { opacity: 0 } : false}
+            animate={{ opacity: 1 }}
+          >
             <LayoutGroup key={presenceKey}>
               <AnimatePresence initial={false} custom={departures}>
                 {rows.map((row, index) => (
@@ -91,12 +81,103 @@ export function PullRequestTable({
                 ))}
               </AnimatePresence>
             </LayoutGroup>
-          )}
-          {!isLoading && rows.length === 0 ? <DataGridTableEmpty /> : null}
-        </tbody>
+            {rows.length === 0 ? <DataGridTableEmpty /> : null}
+          </motion.tbody>
+        )}
       </DataGridTableBase>
+      <AnimatePresence initial={false}>
+        {isLoading ? (
+          <motion.div
+            key="skeleton"
+            aria-hidden
+            inert
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="pointer-events-none absolute inset-x-0 top-0 [&_thead]:invisible"
+          >
+            {/* Same colgroup and an invisible header copy: columns and rows
+                line up with the real table without measuring anything. */}
+            <DataGridTableBase>
+              <QueueHead />
+              <tbody>
+                <SkeletonRows columnIds={columnIds} />
+              </tbody>
+            </DataGridTableBase>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </DataGridTableViewport>
   );
+}
+
+function QueueHead() {
+  const { table } = useDataGrid<PullRequestItem>();
+  return (
+    <DataGridTableHead>
+      {getDataGridTableMergedHeaderGroups(table).map((group) => (
+        <DataGridTableHeadRow key={group.id} rowId={group.id}>
+          {[...group.startHeaders, ...group.centerHeaders, ...group.endHeaders].map(
+            (header) => (
+              <DataGridTableHeadRowCell
+                key={header.id}
+                header={header}
+                coveredHeaders={group.coveredHeaders.get(header.id)}
+              >
+                {renderDataGridTableHeadCellContent(header)}
+              </DataGridTableHeadRowCell>
+            ),
+          )}
+        </DataGridTableHeadRow>
+      ))}
+    </DataGridTableHead>
+  );
+}
+
+// Must equal the tallest real cell (the title cell: a text-sm line, gap-0.5
+// and a text-xs line = 20 + 2 + 16px), so skeleton rows and real rows match.
+const ROW_CONTENT_HEIGHT = "h-[38px]";
+
+const SKELETON_CELLS: Record<string, ReactNode> = {
+  createdOn: (
+    <>
+      <Skeleton className="size-2 rounded-full" />
+      <Skeleton className="h-3.5 w-16" />
+    </>
+  ),
+  title: (
+    <div className="flex w-full flex-col gap-1.5">
+      <Skeleton className="h-3.5 w-4/5" />
+      <Skeleton className="h-3 w-28" />
+    </div>
+  ),
+  author: (
+    <>
+      <Skeleton className="size-6 rounded-full" />
+      <Skeleton className="h-3.5 w-24" />
+    </>
+  ),
+  approvals: (
+    <>
+      <Skeleton className="h-1.5 w-[1.625rem] rounded-full" />
+      <Skeleton className="h-3 w-6" />
+    </>
+  ),
+  state: <Skeleton className="h-5 w-20 rounded-full" />,
+};
+
+function SkeletonRows({ columnIds }: { columnIds: string[] }) {
+  return Array.from({ length: SKELETON_ROWS }, (_, i) => (
+    <tr key={i} className="[&:not(:last-child)>td]:border-b">
+      {columnIds.map((id) => (
+        <td key={id} className="px-2 py-1.5 align-middle">
+          <div className={`flex items-center gap-2 ${ROW_CONTENT_HEIGHT}`}>
+            {SKELETON_CELLS[id] ?? <Skeleton className="h-3.5 w-3/4" />}
+          </div>
+        </td>
+      ))}
+    </tr>
+  ));
 }
 
 type PullRequestRowProps = {

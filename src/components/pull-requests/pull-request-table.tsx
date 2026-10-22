@@ -50,6 +50,19 @@ export function PullRequestTable({
   const [sawSkeleton, setSawSkeleton] = useState(isLoading);
   if (isLoading && !sawSkeleton) setSawSkeleton(true);
 
+  // When the last rows leave, the empty state waits for their fade-out so it
+  // does not appear under them and then jump up. A view switch (new presence
+  // key) has no exits, so it shows the empty state at once.
+  const [exitState, setExitState] = useState({ count: rows.length, key: presenceKey, settled: true });
+  if (exitState.count !== rows.length || exitState.key !== presenceKey) {
+    setExitState({
+      count: rows.length,
+      key: presenceKey,
+      settled: exitState.key !== presenceKey || !(rows.length === 0 && exitState.count > 0),
+    });
+  }
+  const showEmpty = rows.length === 0 && exitState.settled;
+
   return (
     <DataGridTableViewport>
       <DataGridTableBase>
@@ -69,7 +82,11 @@ export function PullRequestTable({
             animate={{ opacity: 1 }}
           >
             <LayoutGroup key={presenceKey}>
-              <AnimatePresence initial={false} custom={departures}>
+              <AnimatePresence
+                initial={false}
+                custom={departures}
+                onExitComplete={() => setExitState((s) => ({ ...s, settled: true }))}
+              >
                 {rows.map((row, index) => (
                   <PullRequestRow
                     key={row.id}
@@ -81,7 +98,7 @@ export function PullRequestTable({
                 ))}
               </AnimatePresence>
             </LayoutGroup>
-            {rows.length === 0 ? <DataGridTableEmpty /> : null}
+            {showEmpty ? <DataGridTableEmpty /> : null}
           </motion.tbody>
         )}
       </DataGridTableBase>

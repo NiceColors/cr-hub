@@ -27,6 +27,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { PageHeader } from "@/components/page-header";
+import { DrawnCheckIcon } from "@/components/motion/drawn-check-icon";
 import { RelativeTime } from "@/components/relative-time";
 import { pullRequestColumns } from "@/components/pull-requests/pull-request-columns";
 import { PullRequestStats } from "@/components/pull-requests/pull-request-stats";
@@ -263,7 +264,7 @@ function QueueEmptyState({ hasConfig, filtered }: { hasConfig: boolean; filtered
     <Empty className="py-10">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <CircleCheckIcon />
+          {filtered ? <CircleCheckIcon /> : <DrawnCheckIcon />}
         </EmptyMedia>
         <EmptyTitle>{filtered ? "Nenhum PR neste filtro" : "Fila zerada"}</EmptyTitle>
         <EmptyDescription>

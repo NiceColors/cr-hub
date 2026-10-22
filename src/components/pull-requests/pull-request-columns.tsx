@@ -74,10 +74,10 @@ export const pullRequestColumns: ColumnDef<DataGridFeatures, PullRequestItem>[] 
             target="_blank"
             rel="noopener noreferrer"
             title={pr.title}
-            className="group/link inline-flex min-w-0 items-center gap-1 rounded-sm font-medium outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="group/link inline-flex min-w-0 items-center gap-1 rounded-sm font-medium outline-none transition-colors duration-fast ease-out hover:text-primary focus-ring"
           >
             <span className="truncate">{pr.title}</span>
-            <ArrowUpRightIcon className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/link:opacity-100 group-focus-visible/link:opacity-100" />
+            <ArrowUpRightIcon className="size-3 shrink-0 -translate-x-0.5 translate-y-0.5 text-muted-foreground opacity-0 transition-[opacity,translate] duration-fast ease-out group-hover/link:translate-x-0 group-hover/link:translate-y-0 group-hover/link:opacity-100 group-focus-visible/link:translate-x-0 group-focus-visible/link:translate-y-0 group-focus-visible/link:opacity-100" />
           </a>
           <span className="truncate font-mono text-xs text-muted-foreground">
             {pr.repository.slug} <span className="text-muted-foreground/60">#</span>

@@ -188,7 +188,7 @@ function PaletteItem({
         <motion.span
           layoutId="command-menu-highlight"
           aria-hidden
-          className="absolute inset-0 -z-10 rounded-lg bg-muted"
+          className="absolute inset-0 -z-10 rounded-lg bg-accent"
           transition={HIGHLIGHT_TRANSITION}
         />
       ) : null}

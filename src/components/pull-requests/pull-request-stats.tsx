@@ -101,7 +101,7 @@ export const PullRequestStats = memo(function PullRequestStats({
         <div
           key={stat.label}
           className={cn(
-            "flex flex-col gap-1 px-4 py-3",
+            "flex flex-col gap-1 border-border/60 px-4 py-3",
             i % 2 === 1 && "border-l",
             i >= 2 && "border-t lg:border-t-0",
             i === 2 && "lg:border-l",
@@ -140,7 +140,7 @@ export const PullRequestStats = memo(function PullRequestStats({
                 )}
               </AnimatePresence>
             </span>
-            <span className="truncate text-xs text-muted-foreground">{stat.hint}</span>
+            <span className="truncate text-xs text-muted-foreground/80">{stat.hint}</span>
           </dd>
         </div>
       ))}

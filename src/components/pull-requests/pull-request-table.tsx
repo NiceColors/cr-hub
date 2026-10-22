@@ -17,6 +17,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { DURATION, EASE_IN_OUT, EASE_OUT } from "@/components/motion/tokens";
 import type { PullRequestItem } from "@/hooks/use-pull-requests";
+import { cn } from "@/lib/utils";
 
 const SKELETON_ROWS = 6;
 
@@ -232,7 +233,13 @@ const PullRequestRow = memo(
         transition={ROW_TRANSITION}
         data-row-id={row.id}
         data-arrived={arrived || undefined}
-        className="hover:bg-muted/40 data-arrived:animate-row-arrive [&:not(:last-child)>td]:border-b"
+        data-critical={row.original.ageBand === "critical" || undefined}
+        className={cn(
+          "transition-colors duration-fast ease-out hover:bg-muted/40 data-arrived:animate-row-arrive [&:not(:last-child)>td]:border-b",
+          // A 2px edge inside the first cell: marks the row without tinting it
+          // or shifting the columns.
+          "data-critical:[&>td:first-child]:shadow-[inset_2px_0_0_var(--destructive)]",
+        )}
       >
         {row.getVisibleCells().map((cell) => (
           <td key={cell.id} className="px-2 py-1.5 align-middle">

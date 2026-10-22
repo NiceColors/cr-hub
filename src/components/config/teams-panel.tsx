@@ -81,7 +81,7 @@ export function TeamsPanel() {
                 <button
                   type="button"
                   onClick={() => openEdit(team)}
-                  className="group flex w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+                  className="group flex w-full items-center gap-4 px-4 py-3 text-left outline-none transition-colors duration-fast ease-out hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
                 >
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <span className="truncate text-sm font-medium">{team.name}</span>

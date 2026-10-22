@@ -221,6 +221,29 @@
   }
 }
 
+/* Route change: the page content crossfades in 150ms. The shell (sidebar,
+   header) lives in the root snapshot and crossfades with the same timing. */
+@keyframes page-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes page-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+::view-transition-old(.page-exit) {
+  animation: 150ms var(--ease-out) both page-fade-out;
+}
+::view-transition-new(.page-enter) {
+  animation: 150ms var(--ease-out) both page-fade-in;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 150ms;
+}
+
 /* Reduced motion: CSS animations and transitions resolve instantly. Motion
    (WAAPI) is handled by <MotionConfig reducedMotion="user">, which keeps
    opacity fades and drops transforms and layout animations. */

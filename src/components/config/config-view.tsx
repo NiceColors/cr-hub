@@ -7,7 +7,10 @@ import {
   UserIcon,
   UsersIcon,
 } from "lucide-react";
+import { useState } from "react";
+import { motion } from "motion/react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { DURATION, EASE_IN_OUT } from "@/components/motion/tokens";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
 import { MembersPanel } from "@/components/config/members-panel";
@@ -24,7 +27,26 @@ function Count({ value }: { value: number | undefined }) {
   );
 }
 
+type ConfigTab = "repositories" | "members" | "teams" | "polling";
+
+const INDICATOR_TRANSITION = { duration: DURATION.base, ease: EASE_IN_OUT };
+
+/** One underline for all tabs, sliding to the active one. */
+function TabIndicator({ show }: { show: boolean }) {
+  return show ? (
+    <motion.span
+      layoutId="config-tab-indicator"
+      aria-hidden
+      className="absolute inset-x-0 -bottom-[5px] h-0.5 bg-foreground"
+      transition={INDICATOR_TRANSITION}
+    />
+  ) : null;
+}
+
+const TRIGGER_CLASS = "flex-none after:hidden";
+
 export function ConfigView() {
+  const [tab, setTab] = useState<ConfigTab>("repositories");
   const status = useStatus();
   const repositories = useRepositories().data?.repositories;
   const members = useMembers().data?.members;
@@ -47,26 +69,34 @@ export function ConfigView() {
         </Alert>
       ) : null}
 
-      <Tabs defaultValue="repositories" className="gap-6">
+      <Tabs
+        value={tab}
+        onValueChange={(value) => setTab(value as ConfigTab)}
+        className="gap-6"
+      >
         <TabsList variant="line" className="w-full flex-wrap justify-start border-b">
-          <TabsTrigger value="repositories" className="flex-none">
+          <TabsTrigger value="repositories" className={TRIGGER_CLASS}>
             <FolderGit2Icon />
             Repositórios
             <Count value={repositories?.filter((r) => r.monitored).length} />
+            <TabIndicator show={tab === "repositories"} />
           </TabsTrigger>
-          <TabsTrigger value="members" className="flex-none">
+          <TabsTrigger value="members" className={TRIGGER_CLASS}>
             <UserIcon />
             Membros
             <Count value={members?.filter((m) => m.monitored).length} />
+            <TabIndicator show={tab === "members"} />
           </TabsTrigger>
-          <TabsTrigger value="teams" className="flex-none">
+          <TabsTrigger value="teams" className={TRIGGER_CLASS}>
             <UsersIcon />
             Times
             <Count value={teams?.length} />
+            <TabIndicator show={tab === "teams"} />
           </TabsTrigger>
-          <TabsTrigger value="polling" className="flex-none">
+          <TabsTrigger value="polling" className={TRIGGER_CLASS}>
             <RefreshCwIcon />
             Atualização
+            <TabIndicator show={tab === "polling"} />
           </TabsTrigger>
         </TabsList>
 

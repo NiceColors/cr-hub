@@ -14,6 +14,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { FetchProgress } from "@/components/fetch-progress";
 import { useCommandMenu } from "@/components/command-menu";
 import { NAV_ITEMS, isActivePath } from "@/components/nav-items";
 
@@ -24,6 +25,7 @@ export function AppHeader() {
 
   return (
     <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
+      <FetchProgress />
       <SidebarTrigger className="-ml-2" />
       <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
       <Breadcrumb>

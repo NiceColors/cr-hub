@@ -1,7 +1,11 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import { toast } from "sonner";
+import { getJson } from "@/lib/api/http";
+import { queryKeys } from "@/lib/query-keys";
+import { failureMessage } from "@/hooks/use-config";
 
 const pullRequestItemSchema = z.object({
   id: z.number(),
@@ -42,37 +46,27 @@ const responseSchema = z.object({
 });
 
 export type PullRequestsResponse = z.infer<typeof responseSchema>;
+export type PullRequestItem = z.infer<typeof pullRequestItemSchema>;
+export type ReviewState = PullRequestItem["reviewState"];
+export type AgeBand = PullRequestItem["ageBand"];
 
-type Filters = {
-  teamId?: number | null;
-};
-
-async function fetchPullRequests(filters: Filters, force: boolean) {
+function fetchPullRequests(teamId: number | null, force: boolean) {
   const params = new URLSearchParams();
-  if (filters.teamId) params.set("teamId", String(filters.teamId));
+  if (teamId) params.set("teamId", String(teamId));
   if (force) params.set("force", "1");
-
-  const res = await fetch(`/api/pull-requests?${params.toString()}`, {
-    method: "GET",
-  });
-  const json = await res.json();
-  const parsed = responseSchema.safeParse(json);
-  if (!parsed.success) {
-    throw new Error("Resposta inválida do servidor (/api/pull-requests)");
-  }
-  return parsed.data;
+  return getJson(`/api/pull-requests?${params.toString()}`, responseSchema);
 }
 
 export function usePullRequests(opts: {
-  filters: Filters;
+  teamId: number | null;
   refreshIntervalSec: number;
 }) {
   const queryClient = useQueryClient();
-  const key = ["pull-requests", opts.filters] as const;
+  const key = queryKeys.pullRequestsFor(opts.teamId);
 
   const query = useQuery({
     queryKey: key,
-    queryFn: () => fetchPullRequests(opts.filters, false),
+    queryFn: () => fetchPullRequests(opts.teamId, false),
     refetchInterval: () => {
       if (typeof document === "undefined") return false;
       if (document.visibilityState !== "visible") return false;
@@ -80,12 +74,11 @@ export function usePullRequests(opts: {
     },
   });
 
-  const refreshNow = async () => {
-    const data = await fetchPullRequests(opts.filters, true);
-    queryClient.setQueryData(key, data);
-    return data;
-  };
+  const refresh = useMutation({
+    mutationFn: () => fetchPullRequests(opts.teamId, true),
+    onSuccess: (data) => queryClient.setQueryData(key, data),
+    onError: () => toast.error(failureMessage("atualizar a fila")),
+  });
 
-  return { query, refreshNow };
+  return { query, refresh };
 }
-

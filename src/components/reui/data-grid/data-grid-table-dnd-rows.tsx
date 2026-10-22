@@ -71,7 +71,7 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import { flexRender } from "@tanstack/react-table"
 import type { Cell, Header, Row } from "@tanstack/react-table"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import { createPortal } from "react-dom"
 
 import { Button } from "@/components/ui/button"

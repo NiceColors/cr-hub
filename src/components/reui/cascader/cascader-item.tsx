@@ -20,7 +20,7 @@ import { Combobox as ComboboxPrimitive } from "@base-ui/react"
 import { mergeProps } from "@base-ui/react/merge-props"
 import { useRender } from "@base-ui/react/use-render"
 
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import { Spinner } from "@/components/ui/spinner"
 import { LoaderCircleIcon, MinusIcon, CheckIcon, RotateCwIcon, ChevronRightIcon } from "lucide-react"
 

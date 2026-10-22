@@ -21,7 +21,7 @@ import {
 } from "@/components/reui/cascader/cascader-lib"
 import { Combobox as ComboboxPrimitive } from "@base-ui/react"
 
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { LoaderCircleIcon } from "lucide-react"
 

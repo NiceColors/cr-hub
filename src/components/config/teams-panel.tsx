@@ -1,0 +1,121 @@
+"use client";
+
+import { useState } from "react";
+import { ChevronRightIcon, PlusIcon, UsersIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SectionHeader } from "@/components/config/section-header";
+import { TeamDialog } from "@/components/config/team-dialog";
+import { useMembers, useRepositories, useTeams } from "@/hooks/use-config";
+import type { Team } from "@/lib/api/config";
+
+export function TeamsPanel() {
+  const teamsQuery = useTeams();
+  const members = useMembers().data?.members ?? [];
+  const repositories = useRepositories().data?.repositories ?? [];
+  const [dialog, setDialog] = useState<{ open: boolean; team: Team | null }>({
+    open: false,
+    team: null,
+  });
+
+  const teams = teamsQuery.data?.teams ?? [];
+  const memberNames = new Map(members.map((m) => [m.uuid, m.displayName]));
+
+  const openCreate = () => setDialog({ open: true, team: null });
+  const openEdit = (team: Team) => setDialog({ open: true, team });
+
+  return (
+    <div className="flex flex-col gap-4">
+      <SectionHeader
+        title="Times"
+        description="Times recortam a fila por membros e, opcionalmente, por repositórios."
+        actions={
+          <Button size="sm" onClick={openCreate}>
+            <PlusIcon data-icon="inline-start" />
+            Novo time
+          </Button>
+        }
+      />
+
+      {teamsQuery.isLoading ? (
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-14 w-full" />
+        </div>
+      ) : teams.length === 0 ? (
+        <Empty className="border py-10">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <UsersIcon />
+            </EmptyMedia>
+            <EmptyTitle>Nenhum time</EmptyTitle>
+            <EmptyDescription>
+              Crie um time para filtrar a fila pelos PRs de um grupo específico.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button size="sm" variant="outline" onClick={openCreate}>
+              <PlusIcon data-icon="inline-start" />
+              Criar primeiro time
+            </Button>
+          </EmptyContent>
+        </Empty>
+      ) : (
+        <ul className="divide-y overflow-hidden rounded-lg border bg-card">
+          {teams.map((team) => {
+            const names = team.memberUuids
+              .map((uuid) => memberNames.get(uuid))
+              .filter(Boolean)
+              .join(", ");
+            return (
+              <li key={team.id}>
+                <button
+                  type="button"
+                  onClick={() => openEdit(team)}
+                  className="group flex w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+                >
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="truncate text-sm font-medium">{team.name}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {names || "Sem membros"}
+                    </span>
+                  </div>
+                  <Badge variant="secondary">
+                    <span className="font-mono">{team.memberUuids.length}</span> membro(s)
+                  </Badge>
+                  <Badge variant="outline">
+                    {team.repositoryUuids.length ? (
+                      <>
+                        <span className="font-mono">{team.repositoryUuids.length}</span> repo(s)
+                      </>
+                    ) : (
+                      "Todos os repos"
+                    )}
+                  </Badge>
+                  <ChevronRightIcon className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <TeamDialog
+        open={dialog.open}
+        onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}
+        team={dialog.team}
+        members={members}
+        repositories={repositories}
+      />
+    </div>
+  );
+}

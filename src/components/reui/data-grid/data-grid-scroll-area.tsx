@@ -18,7 +18,7 @@ import {
 } from "@base-ui/react/direction-provider"
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area"
 
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 
 const MIN_THUMB_SIZE = 24
 const FALLBACK_SCROLLBAR_SIZE = 12

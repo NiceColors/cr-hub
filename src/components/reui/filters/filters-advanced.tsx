@@ -63,7 +63,7 @@ import type {
   FilterRule,
 } from "@/components/reui/filters/filters-types"
 
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,

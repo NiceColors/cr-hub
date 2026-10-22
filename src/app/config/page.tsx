@@ -1,6 +1,5 @@
-import { ConfigPage } from "@/app/config/config-page";
+import { ConfigView } from "@/components/config/config-view";
 
 export default function Page() {
-  return <ConfigPage />;
+  return <ConfigView />;
 }
-

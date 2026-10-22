@@ -1,5 +1,9 @@
+"use client";
+
 import type { CSSProperties } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { Badge } from "@/components/ui/badge";
+import { DURATION, EASE_OUT } from "@/components/motion/tokens";
 import type { AgeBand, ReviewState } from "@/hooks/use-pull-requests";
 import { cn } from "@/lib/utils";
 
@@ -13,9 +17,27 @@ const REVIEW_STATE: Record<
   waiting: { label: "Aguardando", variant: "secondary" },
 };
 
+const BADGE_ENTER = { duration: DURATION.base, ease: EASE_OUT };
+
+/** Crossfades in place when the state changes between updates; never on mount. */
 export function ReviewStateBadge({ state }: { state: ReviewState }) {
   const { label, variant } = REVIEW_STATE[state];
-  return <Badge variant={variant}>{label}</Badge>;
+  return (
+    <span className="inline-grid justify-items-start align-middle">
+      <AnimatePresence initial={false}>
+        <motion.span
+          key={state}
+          className="[grid-area:1/1]"
+          initial={{ opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0 }}
+          transition={BADGE_ENTER}
+        >
+          <Badge variant={variant}>{label}</Badge>
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  );
 }
 
 export function AgeIndicator({ band }: { band: AgeBand }) {

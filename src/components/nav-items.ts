@@ -1,5 +1,6 @@
 import {
   GitPullRequestIcon,
+  LayoutDashboardIcon,
   Settings2Icon,
   UsersRoundIcon,
   type LucideIcon,
@@ -14,6 +15,7 @@ export type NavItem = {
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { title: "Fila de CRs", href: "/", icon: GitPullRequestIcon, shortcut: "G F" },
+  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboardIcon, shortcut: "G D" },
   { title: "Equipe", href: "/equipe", icon: UsersRoundIcon, shortcut: "G E" },
   { title: "Configuração", href: "/config", icon: Settings2Icon, shortcut: "G C" },
 ];

@@ -5,7 +5,7 @@ import { useAnimatedSidebar } from "@/components/motion/animated-sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
 import { Tooltip } from "@/components/motion/tooltip";
 import { useProfile } from "@/components/profile-provider";
-import { PROFILE_LABELS, PROFILES, type Profile } from "@/lib/profile";
+import { PROFILE_LABELS, UI_PROFILES, type Profile } from "@/lib/profile";
 
 const PROFILE_ICONS: Record<Profile, typeof CodeXmlIcon> = {
   dev: CodeXmlIcon,
@@ -15,6 +15,7 @@ const PROFILE_ICONS: Record<Profile, typeof CodeXmlIcon> = {
 export function ProfileSwitch() {
   const { profile, setProfile } = useProfile();
   const { state, isMobile } = useAnimatedSidebar();
+  if (UI_PROFILES.length < 2) return null;
   const other: Profile = profile === "dev" ? "lead" : "dev";
 
   if (state === "collapsed" && !isMobile) {
@@ -36,7 +37,7 @@ export function ProfileSwitch() {
   return (
     <Tabs value={profile} onValueChange={(v) => setProfile(v as Profile)} variant="segment">
       <TabsList aria-label="Perfil" wrapperClassName="w-full" className="grid w-full grid-cols-2">
-        {PROFILES.map((value) => {
+        {UI_PROFILES.map((value) => {
           const Icon = PROFILE_ICONS[value];
           return (
             <TabsTrigger

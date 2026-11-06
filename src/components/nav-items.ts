@@ -7,6 +7,7 @@ import {
   UsersRoundIcon,
   type LucideIcon,
 } from "lucide-react";
+import { ENABLE_LEAD_VIEW } from "@/lib/features";
 import type { Profile } from "@/lib/profile";
 
 export type NavItem = {
@@ -29,11 +30,12 @@ const LEAD_NAV_ITEMS: readonly NavItem[] = [LEAD, QUEUE, DASHBOARD, TEAM, CONFIG
 
 /** Itens do menu do perfil. Atalhos de todas as rotas seguem valendo nos dois perfis. */
 export function navItemsFor(profile: Profile): readonly NavItem[] {
+  if (!ENABLE_LEAD_VIEW) return NAV_ITEMS;
   return profile === "lead" ? LEAD_NAV_ITEMS : NAV_ITEMS;
 }
 
-/** Todas as rotas com atalho, para o `G <tecla>` funcionar em qualquer perfil. */
-export const ALL_NAV_ITEMS: readonly NavItem[] = [LEAD, ...NAV_ITEMS];
+/** Rotas com atalho. Sem a visão de líder, `G L` deixa de existir. */
+export const ALL_NAV_ITEMS: readonly NavItem[] = ENABLE_LEAD_VIEW ? [LEAD, ...NAV_ITEMS] : NAV_ITEMS;
 
 export function isActivePath(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);

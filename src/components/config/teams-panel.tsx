@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionHeader } from "@/components/config/section-header";
+import { QueryError } from "@/components/query-error";
 import { TeamDialog } from "@/components/config/team-dialog";
 import { useMembers, useRepositories, useTeams } from "@/hooks/use-config";
 import type { Team } from "@/lib/api/config";
@@ -51,6 +52,13 @@ export function TeamsPanel() {
           <Skeleton className="h-14 w-full" />
           <Skeleton className="h-14 w-full" />
         </div>
+      ) : teamsQuery.isError && !teamsQuery.data ? (
+        <QueryError
+          title="Não foi possível carregar os times"
+          error={teamsQuery.error}
+          onRetry={() => teamsQuery.refetch()}
+          retrying={teamsQuery.isFetching}
+        />
       ) : teams.length === 0 ? (
         <Empty className="border py-10">
           <EmptyHeader>

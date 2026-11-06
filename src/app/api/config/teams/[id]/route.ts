@@ -1,12 +1,6 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { teamInputSchema as putSchema } from "@/lib/api/team-schema";
 import { deleteTeam, updateTeam } from "@/services/configService";
-
-const putSchema = z.object({
-  name: z.string().min(1),
-  memberUuids: z.array(z.string().min(1)).default([]),
-  repositoryUuids: z.array(z.string().min(1)).default([]),
-});
 
 function parseId(idParam: string) {
   const id = Number(idParam);

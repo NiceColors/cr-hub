@@ -1,42 +1,50 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Trash2Icon } from "lucide-react";
 import { Button } from "@/components/motion/button/base";
 import { CenterMorphModal, CenterMorphModalContent } from "@/components/motion/center-morph-modal";
-import { Checkbox } from "@/components/motion/checkbox";
 import { Input } from "@/components/motion/input";
+import {
+  MultiSelect,
+  MultiSelectContent,
+  MultiSelectEmpty,
+  MultiSelectInput,
+  MultiSelectItem,
+  MultiSelectList,
+  MultiSelectTrigger,
+  MultiSelectValue,
+} from "@/components/motion/multi-select";
+import { HoldToDelete } from "@/components/hold-to-delete";
 import { useDeleteTeam, useSaveTeam } from "@/hooks/use-config";
 import { useReviewLoad } from "@/hooks/use-review-load";
 import { leastLoadedMembers } from "@/domain/pull-request";
+import type { Rotation } from "@/domain/rotation";
+import { RotationEditor } from "@/components/config/rotation-editor";
 import type { Member, Repository, Team } from "@/lib/api/config";
 
 type Option = { value: string; label: string; detail?: string; highlight?: string };
 
-function toggle(list: string[], value: string, checked: boolean) {
-  return checked ? [...list, value] : list.filter((v) => v !== value);
-}
-
-function CheckboxList({
-  legend,
+function OptionMultiSelect({
+  label,
   hint,
   options,
   selected,
   onChange,
   emptyText,
+  placeholder,
 }: {
-  legend: string;
+  label: string;
   hint?: string;
   options: Option[];
   selected: string[];
   onChange: (next: string[]) => void;
   emptyText: string;
+  placeholder: string;
 }) {
-  const id = useId();
   return (
-    <fieldset className="flex min-w-0 flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-2">
       <div className="flex items-baseline justify-between gap-2">
-        <legend className="text-sm font-medium">{legend}</legend>
+        <span className="text-sm font-medium">{label}</span>
         <span className="font-mono text-xs text-muted-foreground tabular-nums">
           {selected.length}/{options.length}
         </span>
@@ -47,34 +55,41 @@ function CheckboxList({
           {emptyText}
         </p>
       ) : (
-        <ul className="flex h-48 flex-col overflow-y-auto overscroll-contain rounded-2xl border p-1">
-          {options.map((opt) => (
-            <li
-              key={opt.value}
-              className="flex min-w-0 items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-muted/60"
-            >
-              <Checkbox
-                id={`${id}-${opt.value}`}
-                checked={selected.includes(opt.value)}
-                onCheckedChange={(checked) => onChange(toggle(selected, opt.value, checked))}
-                label={opt.label}
-                className="min-w-0 flex-1 [&>span]:truncate"
-              />
-              {opt.highlight ? (
-                <span className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 text-[10px] text-emerald-600 dark:text-emerald-400">
-                  {opt.highlight}
-                </span>
-              ) : null}
-              {opt.detail ? (
-                <span className="truncate font-mono text-xs text-muted-foreground">
-                  {opt.detail}
-                </span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+        <MultiSelect value={selected} onValueChange={onChange}>
+          <MultiSelectTrigger className="min-w-0">
+            <MultiSelectValue placeholder={placeholder} />
+            <MultiSelectInput aria-label={`Buscar ${label.toLowerCase()}`} />
+          </MultiSelectTrigger>
+          <MultiSelectContent>
+            <MultiSelectList ariaLabel={label} className="max-h-64">
+              {options.map((opt) => (
+                <MultiSelectItem
+                  key={opt.value}
+                  value={opt.value}
+                  textValue={opt.label}
+                  keywords={opt.detail ? [opt.detail] : []}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate">{opt.label}</span>
+                    {opt.highlight ? (
+                      <span className="shrink-0 rounded-full border border-success/30 bg-success/10 px-1.5 text-[10px] text-success-foreground">
+                        {opt.highlight}
+                      </span>
+                    ) : null}
+                    {opt.detail ? (
+                      <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground">
+                        {opt.detail}
+                      </span>
+                    ) : null}
+                  </span>
+                </MultiSelectItem>
+              ))}
+            </MultiSelectList>
+            <MultiSelectEmpty />
+          </MultiSelectContent>
+        </MultiSelect>
       )}
-    </fieldset>
+    </div>
   );
 }
 
@@ -103,14 +118,22 @@ function TeamForm({
   const [repositoryUuids, setRepositoryUuids] = useState<string[]>(
     team?.repositoryUuids ?? [],
   );
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [rotation, setRotation] = useState<Rotation | null>(team?.rotation ?? null);
+  const teamMembers = monitoredMembers.filter((m) => memberUuids.includes(m.uuid));
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    const inTeam = new Set(memberUuids);
+    const rotationOrder = rotation?.memberUuids.filter((uuid) => inTeam.has(uuid)) ?? [];
     save.mutate(
       {
         id: team?.id ?? null,
-        input: { name: name.trim() || "Sem nome", memberUuids, repositoryUuids },
+        input: {
+          name: name.trim() || "Sem nome",
+          memberUuids,
+          repositoryUuids,
+          rotation: rotation && rotationOrder.length > 0 ? { ...rotation, memberUuids: rotationOrder } : null,
+        },
       },
       { onSuccess: onDone },
     );
@@ -134,8 +157,9 @@ function TeamForm({
       />
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <CheckboxList
-          legend="Membros"
+        <OptionMultiSelect
+          label="Membros"
+          placeholder="Escolha os membros"
           hint={load ? "Ao lado, revisões pendentes de cada um agora." : undefined}
           options={monitoredMembers.map((m) => ({
             value: m.uuid,
@@ -150,8 +174,9 @@ function TeamForm({
           onChange={setMemberUuids}
           emptyText="Nenhum membro monitorado. Marque membros na aba Membros."
         />
-        <CheckboxList
-          legend="Repositórios"
+        <OptionMultiSelect
+          label="Repositórios"
+          placeholder="Todos os repositórios"
           hint="Vazio = todos os repositórios monitorados."
           options={repositories
             .filter((r) => r.monitored)
@@ -162,49 +187,29 @@ function TeamForm({
         />
       </div>
 
-      {team && confirmingDelete ? (
-        <div
-          role="alert"
-          className="flex flex-col gap-3 rounded-2xl bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <p className="text-sm">
-            Excluir “{team.name}”? O filtro da fila volta para todos os times. Esta ação não pode
-            ser desfeita.
-          </p>
-          <div className="flex shrink-0 gap-2">
-            <Button variant="outline" size="sm" onClick={() => setConfirmingDelete(false)}>
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={remove.isPending}
-              onClick={() => remove.mutate(team.id, { onSuccess: onDone })}
-            >
-              Excluir time
-            </Button>
-          </div>
+      <RotationEditor value={rotation} onChange={setRotation} teamMembers={teamMembers} />
+
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+        {team ? (
+          <HoldToDelete
+            label="Segure para excluir"
+            itemName={`o time ${team.name}`}
+            disabled={remove.isPending}
+            onDelete={() => remove.mutate(team.id, { onSuccess: onDone })}
+            className="self-start"
+          />
+        ) : (
+          <span />
+        )}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row">
+          <Button variant="outline" onClick={onDone}>
+            Cancelar
+          </Button>
+          <Button type="submit" disabled={save.isPending}>
+            {team ? "Salvar" : "Criar time"}
+          </Button>
         </div>
-      ) : (
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-          {team ? (
-            <Button variant="ghost" className="text-destructive" onClick={() => setConfirmingDelete(true)}>
-              <Trash2Icon />
-              Excluir
-            </Button>
-          ) : (
-            <span />
-          )}
-          <div className="flex flex-col-reverse gap-2 sm:flex-row">
-            <Button variant="outline" onClick={onDone}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={save.isPending}>
-              {team ? "Salvar" : "Criar time"}
-            </Button>
-          </div>
-        </div>
-      )}
+      </div>
     </form>
   );
 }

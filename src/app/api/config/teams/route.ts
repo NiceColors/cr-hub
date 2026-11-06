@@ -1,14 +1,8 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { teamInputSchema as postSchema } from "@/lib/api/team-schema";
 import { createTeam, listTeams } from "@/services/configService";
 
 export const dynamic = "force-dynamic";
-
-const postSchema = z.object({
-  name: z.string().min(1),
-  memberUuids: z.array(z.string().min(1)).default([]),
-  repositoryUuids: z.array(z.string().min(1)).default([]),
-});
 
 export async function GET() {
   return NextResponse.json({ teams: listTeams() });

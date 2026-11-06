@@ -2,10 +2,12 @@
 // Prepara o CR Tracker num clone novo: dependências, .env.local, banco e
 // migrations. Usa só módulos do Node, porque roda antes do `npm install`.
 //
-//   npm run setup              interativo: oferece configurar o token no fim
+//   npm run setup              interativo: oferece configurar o token no fim,
+//                              depois faz o build, sobe o app e tenta abrir o navegador
 //   npm run setup -- --yes     sem perguntas (CI ou reinstalação)
+//   npm run setup -- --no-serve   não faz build nem sobe o servidor (--no-start é alias)
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
@@ -20,6 +22,7 @@ const APP_URL = "http://localhost:43123";
 
 const args = new Set(process.argv.slice(2));
 const interactive = process.stdin.isTTY && !args.has("--yes") && !args.has("-y");
+const skipServe = args.has("--no-serve") || args.has("--no-start");
 
 const color = (code) => (text) => (process.stdout.isTTY ? `\x1b[${code}m${text}\x1b[0m` : text);
 const bold = color("1");
@@ -184,6 +187,52 @@ async function askForCredentials() {
   }
 }
 
+function openBrowser(url) {
+  const attempts =
+    process.platform === "win32"
+      ? [["cmd", ["/c", "start", "", url]]]
+      : [
+          ["open", [url]],
+          ["xdg-open", [url]],
+          ["gio", ["open", url]],
+        ];
+  for (const [command, commandArgs] of attempts) {
+    const result = spawnSync(command, commandArgs, { stdio: "ignore" });
+    if (result.status === 0) return true;
+  }
+  return false;
+}
+
+function startServer() {
+  const child = spawn("npm run start -- -p 43123", {
+    cwd: ROOT,
+    stdio: "inherit",
+    shell: true,
+    env: process.env,
+  });
+  const stop = (signal) => {
+    if (!child.killed) child.kill(signal);
+  };
+  process.on("SIGINT", () => stop("SIGINT"));
+  process.on("SIGTERM", () => stop("SIGTERM"));
+  return new Promise((resolve) => {
+    child.on("exit", (code) => resolve(code ?? 0));
+  });
+}
+
+async function waitForServer(url) {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(1000) });
+      if (res.status < 500) return true;
+    } catch {
+      // o servidor ainda está subindo
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
 // --- Passos -------------------------------------------------------------------
 
 async function main() {
@@ -236,7 +285,11 @@ async function main() {
 
   console.log(`\n${green("✔")} ${bold("Pronto.")} Próximos passos:\n`);
   let n = 1;
-  console.log(`  ${n++}. ${bold("npm run dev")} e abra ${APP_URL}`);
+  if (skipServe) {
+    console.log(`  ${n++}. ${bold("npm run dev")} e abra ${APP_URL}`);
+  } else {
+    console.log(`  ${n++}. O app abre em ${bold(APP_URL)}`);
+  }
   if (!configured) {
     console.log(
       `  ${n++}. Em ${bold("Configuração → Integrações")}, informe workspace, e-mail e API token do Bitbucket`,
@@ -246,6 +299,26 @@ async function main() {
     `  ${n++}. Em ${bold("Configuração")}, sincronize repositórios e membros e marque o que monitorar`,
   );
   console.log("");
+
+  if (skipServe) return;
+
+  step("Gerando o build");
+  if (!runNpm(["run", "build"])) {
+    fail("O build falhou.", "Rode `npm run build` para ver o erro, ou use `npm run setup -- --no-serve`.");
+  }
+
+  step("Subindo o app");
+  console.log(`Servidor em ${APP_URL}`);
+  const server = startServer();
+  const up = await waitForServer(APP_URL);
+  if (up && openBrowser(APP_URL)) {
+    console.log(green(`Aberto ${APP_URL}`));
+  } else if (up) {
+    console.log(`Abra ${APP_URL} no navegador.`);
+  } else {
+    console.log(yellow(`O servidor demorou a responder. Abra ${APP_URL} se ele subir.`));
+  }
+  process.exit(await server);
 }
 
 main().catch((err) => fail(err instanceof Error ? err.message : String(err)));

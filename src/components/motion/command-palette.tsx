@@ -55,7 +55,7 @@ export function CommandPalette({
   items,
   shortcut = "k",
   placeholder = "Type a command or search…",
-  emptyMessage = "No results found.",
+  emptyMessage = "Nenhum resultado encontrado.",
   open: controlledOpen,
   onOpenChange,
 }: CommandPaletteProps) {
@@ -191,7 +191,7 @@ export function CommandPalette({
           {({ gate }) => (
             <motion.button
               type="button"
-              aria-label="Close command palette"
+              aria-label="Fechar paleta de comandos"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{
@@ -219,7 +219,7 @@ export function CommandPalette({
               <motion.div
                 role="dialog"
                 aria-modal="true"
-                aria-label="Command palette"
+                aria-label="Paleta de comandos"
                 initial={{
                   opacity: 0,
                   y: reduce ? 0 : -8,
@@ -270,7 +270,7 @@ export function CommandPalette({
                   ref={listRef}
                   id={`${uid}-list`}
                   role="listbox"
-                  aria-label="Commands"
+                  aria-label="Comandos"
                   className="max-h-[60vh] overflow-y-auto overscroll-contain p-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 >
                   {rows.length === 0 ? (

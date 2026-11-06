@@ -3,7 +3,7 @@
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Checkbox } from "@/components/motion/checkbox";
 import { cn } from "@/lib/utils";
 import { EditableCell } from "./editable-cell";
@@ -15,7 +15,7 @@ import { useColumnReorder } from "./use-column-reorder";
 import { useColumnResize } from "./use-column-resize";
 import { useColumnSort } from "./use-column-sort";
 import { useRowSelection } from "./use-row-selection";
-import { alignText, CHECKBOX_PX, CHECKBOX_WIDTH, readCell } from "./utils";
+import { alignText, CHECKBOX_PX, CHECKBOX_WIDTH, hideCell, hideCol, readCell } from "./utils";
 
 export type {
   SortDirection,
@@ -38,6 +38,32 @@ const INTERACTIVE_SELECTOR =
  * not the row. Clicks from portaled content (menus, dialogs) still bubble
  * through React to the row, but never land inside its DOM.
  */
+type DisplayItem<T> =
+  | { kind: "group"; id: string; label: ReactNode }
+  | { kind: "row"; entry: { row: T; id: string } };
+
+function withGroupHeaders<T>(
+  rows: { row: T; id: string }[],
+  getRowGroup?: (row: T) => { id: string; label: ReactNode } | null,
+): DisplayItem<T>[] {
+  if (!getRowGroup) return rows.map((entry) => ({ kind: "row", entry }));
+  const items: DisplayItem<T>[] = [];
+  let previous: string | null = null;
+  for (const entry of rows) {
+    const group = getRowGroup(entry.row);
+    if (group && group.id !== previous) {
+      items.push({
+        kind: "group",
+        id: `group:${group.id}:${items.length}`,
+        label: group.label,
+      });
+    }
+    previous = group?.id ?? null;
+    items.push({ kind: "row", entry });
+  }
+  return items;
+}
+
 function isInteractiveTarget(target: EventTarget, row: HTMLElement) {
   if (!(target instanceof Element)) return false;
   if (!row.contains(target)) return true;
@@ -95,6 +121,7 @@ export function Table<T>({
   sort: sortProp,
   defaultSort = null,
   onSortChange,
+  manualSort = false,
   resizable = false,
   minColumnWidth = 64,
   onColumnResize,
@@ -108,6 +135,7 @@ export function Table<T>({
   onDeleteColumn,
   rowHeight = 48,
   height = 440,
+  fitContainer = false,
   overscan = 10,
   onEndReached,
   loading = false,
@@ -117,6 +145,7 @@ export function Table<T>({
   onRowClick,
   getRowLabel,
   getRowClassName,
+  getRowGroup,
 }: TableProps<T>) {
   const reduce = useReducedMotion();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -148,7 +177,13 @@ export function Table<T>({
     sort: sortProp,
     defaultSort,
     onSortChange,
+    manualSort,
   });
+
+  const displayItems = useMemo(
+    () => withGroupHeaders(sortedRows, getRowGroup),
+    [sortedRows, getRowGroup],
+  );
 
   const { widths, startResize, moveResize, endResize } = useColumnResize({
     orderedColumns,
@@ -166,7 +201,7 @@ export function Table<T>({
     });
 
   const virtualizer = useVirtualizer({
-    count: sortedRows.length,
+    count: displayItems.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => rowHeight,
     overscan,
@@ -189,7 +224,11 @@ export function Table<T>({
     orderedColumns.every((c) => widths[c.key] != null);
   // A column without a width already absorbs the leftover space; a filler
   // beside it would split that space with it.
-  const filler = orderedColumns.every((c) => widths[c.key] != null || c.width);
+  // Percentage columns already partition the container; a filler column would
+  // steal part of that width and push the table into horizontal scroll.
+  const filler =
+    !fitContainer &&
+    orderedColumns.every((c) => widths[c.key] != null || c.width);
 
   const rootFontSize = useRootFontSize();
   // In a container narrower than the columns, `table-layout: fixed` shrinks
@@ -269,8 +308,10 @@ export function Table<T>({
     rowTimer.current = setTimeout(() => setActiveRow(null), 100);
   }, []);
   const activeRowEl = activeRow ? rowRefs.current[activeRow.id] : null;
-  // Real columns + checkbox; the trailing spacer adds one more in colSpans.
-  const leadColumns = columns.length + (selectable ? 1 : 0);
+  // Real columns + checkbox + the filler, when there is one. A colSpan past the
+  // last column makes `table-layout: fixed` add a phantom column that splits
+  // the leftover width with the flexible ones.
+  const spanColumns = columns.length + (selectable ? 1 : 0) + (filler ? 1 : 0);
 
   return (
     <div
@@ -282,14 +323,16 @@ export function Table<T>({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="overflow-auto"
+        className={fitContainer ? "overflow-x-hidden overflow-y-auto" : "overflow-auto"}
         style={{ height }}
       >
         <table
-          className={cn("border-collapse", sized ? "w-max" : undefined)}
+          className={cn("border-collapse", sized && !fitContainer ? "w-max" : undefined)}
           style={{
             tableLayout: "fixed",
-            minWidth: `max(100%, ${minTableWidth}px)`,
+            width: fitContainer ? "100%" : undefined,
+            maxWidth: fitContainer ? "100%" : undefined,
+            minWidth: fitContainer ? 0 : `max(100%, ${minTableWidth}px)`,
           }}
         >
           <colgroup>
@@ -298,7 +341,7 @@ export function Table<T>({
               const override = widths[column.key];
               const width = override ? `${override}px` : column.width;
               return (
-                <col key={column.key} style={width ? { width } : undefined} />
+                <col key={column.key} className={hideCol(column.hideBelow)} style={width ? { width } : undefined} />
               );
             })}
             {/* Empty filler owns the leftover space — no gap, content unpinned. */}
@@ -348,7 +391,7 @@ export function Table<T>({
               ) : (
                 <tr>
                   <td
-                    colSpan={leadColumns + 1}
+                    colSpan={spanColumns}
                     className="p-10 text-center text-muted-foreground"
                   >
                     {emptyState}
@@ -359,11 +402,26 @@ export function Table<T>({
               <>
                 {paddingTop > 0 ? (
                   <tr aria-hidden style={{ height: paddingTop }}>
-                    <td colSpan={leadColumns + 1} />
+                    <td colSpan={spanColumns} />
                   </tr>
                 ) : null}
                 {virtualItems.map((vItem) => {
-                  const entry = sortedRows[vItem.index];
+                  const item = displayItems[vItem.index];
+                  if (!item) return null;
+                  if (item.kind === "group") {
+                    return (
+                      <tr
+                        key={item.id}
+                        style={{ height: rowHeight }}
+                        className="border-border/60 border-b bg-muted/40"
+                      >
+                        <td colSpan={spanColumns} className="px-4">
+                          {item.label}
+                        </td>
+                      </tr>
+                    );
+                  }
+                  const entry = item.entry;
                   const isSelected = selected.has(entry.id);
                   return (
                     <tr
@@ -372,6 +430,7 @@ export function Table<T>({
                         rowRefs.current[entry.id] = el;
                       }}
                       data-selected={isSelected}
+                      data-row-id={entry.id}
                       style={{ height: rowHeight }}
                       onPointerEnter={
                         hasRowMenu
@@ -415,7 +474,7 @@ export function Table<T>({
                             <Checkbox
                               checked={isSelected}
                               onCheckedChange={() => toggleRow(entry.id)}
-                              aria-label={`Select row ${vItem.index + 1}`}
+                              aria-label={`Selecionar linha ${vItem.index + 1}`}
                             />
                           </div>
                         </td>
@@ -424,7 +483,11 @@ export function Table<T>({
                         <td
                           key={column.key}
                           className={cn(
-                            "truncate px-4 text-foreground",
+                            "text-foreground",
+                            hideCell(column.hideBelow),
+                            column.truncate === false
+                              ? "overflow-visible px-1 whitespace-nowrap"
+                              : "truncate px-4",
                             alignText(column.align),
                           )}
                         >
@@ -447,7 +510,7 @@ export function Table<T>({
                 })}
                 {paddingBottom > 0 ? (
                   <tr aria-hidden style={{ height: paddingBottom }}>
-                    <td colSpan={leadColumns + 1} />
+                    <td colSpan={spanColumns} />
                   </tr>
                 ) : null}
                 {loading ? (

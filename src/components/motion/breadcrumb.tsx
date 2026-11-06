@@ -33,7 +33,7 @@ export type BreadcrumbProps = ComponentPropsWithRef<"nav">;
 export function Breadcrumb({ className, children, ...props }: BreadcrumbProps) {
   const id = useId();
   return (
-    <nav aria-label="Breadcrumb" {...props} className={cn("min-w-0", className)}>
+    <nav aria-label="Trilha de navegação" {...props} className={cn("min-w-0", className)}>
       <LayoutGroup id={id}>{children}</LayoutGroup>
     </nav>
   );
@@ -47,7 +47,7 @@ export type BreadcrumbListProps = ComponentPropsWithRef<"ol"> & {
 };
 
 /** Pass keyed BreadcrumbItems directly so entering and leaving routes animate. */
-export function BreadcrumbList({ className, children, maxItems = 4, overflowLabel = "Show hidden paths", ...props }: BreadcrumbListProps) {
+export function BreadcrumbList({ className, children, maxItems = 4, overflowLabel = "Mostrar caminhos ocultos", ...props }: BreadcrumbListProps) {
   const items = Children.toArray(children);
   const limit = Number.isFinite(maxItems) ? Math.max(3, Math.floor(maxItems)) : 4;
   const collapse = maxItems !== Infinity && items.length > limit;
@@ -180,7 +180,7 @@ export interface BreadcrumbEllipsisProps {
 }
 
 /** Hover disclosure with click/touch toggle and keyboard access to ancestor links. */
-export function BreadcrumbEllipsis({ children, className, label = "Show hidden paths" }: BreadcrumbEllipsisProps) {
+export function BreadcrumbEllipsis({ children, className, label = "Mostrar caminhos ocultos" }: BreadcrumbEllipsisProps) {
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<{ align: "start" | "end"; side: "top" | "bottom"; width: number }>({ align: "start", side: "bottom", width: 224 });
   const canHover = useHoverCapable();

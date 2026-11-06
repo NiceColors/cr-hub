@@ -151,12 +151,15 @@ export const SharedLayoutBg = forwardRef<HTMLElement, SharedLayoutBgProps>(
       onBlur?.(event);
     };
 
-    // layoutRoot scopes the pill's layout projection to this list, so fixed or
-    // scrolled ancestors can't smear scroll offsets into its movement.
+    // layoutRoot scopes the children's layout projection to this list, so fixed,
+    // sticky or scrolled ancestors can't smear scroll offsets into their
+    // movement. It only takes effect alongside `layout`: without it Motion never
+    // snapshots this box and children fall back to page coordinates.
     return as === "ul" ? (
       <motion.ul
         {...(props as HTMLMotionProps<"ul">)}
         ref={forwardedRef as Ref<HTMLUListElement>}
+        layout
         layoutRoot
         onMouseLeave={handleMouseLeave}
         onBlur={handleBlur}
@@ -168,6 +171,7 @@ export const SharedLayoutBg = forwardRef<HTMLElement, SharedLayoutBgProps>(
       <motion.div
         {...(props as HTMLMotionProps<"div">)}
         ref={forwardedRef as Ref<HTMLDivElement>}
+        layout
         layoutRoot
         onMouseLeave={handleMouseLeave}
         onBlur={handleBlur}

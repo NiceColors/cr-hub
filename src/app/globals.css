@@ -25,7 +25,9 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-on-destructive: var(--on-destructive);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
 
@@ -62,7 +64,7 @@
   --radius-4xl: 2rem;
 }
 
-/* Motion curves. Mirrored in src/components/motion/tokens.ts for Motion (JS). */
+/* Motion curves. Mirrored in src/lib/ease.ts for Motion (JS). */
 @theme {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
@@ -122,6 +124,15 @@
 
   --radius: 0.75rem;
 
+  /* Brand hue. Palettes override only this; neutrals and status colors stay put.
+     Default 264 is the original indigo, so a missing attribute looks unchanged.
+     --brand-l / --brand-c / --brand-fg change with the color scheme, and warm
+     palettes retune them so white text still holds on the primary fill. */
+  --palette-hue: 264;
+  --brand-l: 0.55;
+  --brand-c: 0.24;
+  --brand-fg: oklch(0.985 0 0);
+
   /* Surfaces: background < card < popover (elevated: popovers, dialogs). */
   --background: oklch(0.985 0 0);
   --foreground: oklch(0.15 0 0);
@@ -129,91 +140,140 @@
   --card-foreground: oklch(0.15 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.15 0 0);
-  --primary: oklch(0.55 0.24 264);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: oklch(var(--brand-l) var(--brand-c) var(--palette-hue));
+  --primary-foreground: var(--brand-fg);
   --secondary: oklch(0.96 0 0);
   --secondary-foreground: oklch(0.15 0 0);
   --muted: oklch(0.96 0 0);
   --muted-foreground: oklch(0.45 0 0);
-  --accent: oklch(0.96 0.02 264);
+  --accent: oklch(0.96 0.02 var(--palette-hue));
   --accent-foreground: oklch(0.15 0 0);
   --destructive: oklch(0.55 0.24 27);
   --destructive-foreground: oklch(0.5 0.2 27);
+  /* Text and icons on a destructive fill. */
+  --on-destructive: oklch(0.985 0 0);
   /* One translucent border token, so a line reads the same on every surface. */
   --border: oklch(0 0 0 / 10%);
+  /* Hover and emphasis edge for bordered controls. */
+  --border-strong: oklch(0 0 0 / 20%);
   --input: oklch(0.9 0 0);
-  --ring: oklch(0.55 0.24 264);
+  --ring: var(--primary);
 
   --success: oklch(0.62 0.15 155);
   --success-foreground: oklch(0.45 0.12 155);
   --warning: oklch(0.75 0.16 75);
   --warning-foreground: oklch(0.5 0.13 60);
-  --info: oklch(0.55 0.24 264);
-  --info-foreground: oklch(0.5 0.2 264);
+  --info: var(--primary);
+  --info-foreground: oklch(0.5 0.2 var(--palette-hue));
   --invert: oklch(0.2 0 0);
   --invert-foreground: oklch(0.98 0 0);
 
-  --chart-1: oklch(0.55 0.24 264);
-  --chart-2: oklch(0.65 0.17 264);
-  --chart-3: oklch(0.75 0.11 264);
+  --chart-1: var(--primary);
+  --chart-2: oklch(0.65 0.17 var(--palette-hue));
+  --chart-3: oklch(0.75 0.11 var(--palette-hue));
   --chart-4: oklch(0.45 0 0);
   --chart-5: oklch(0.7 0 0);
 
+  /* Categorical series (teams, kinds of work): hues spread around the brand
+     hue so the set follows the palette. Never used to signal state. */
+  --series-l: 0.6;
+  --series-c: 0.15;
+  --series-1: oklch(var(--series-l) var(--series-c) var(--palette-hue));
+  --series-2: oklch(var(--series-l) var(--series-c) calc(var(--palette-hue) + 150));
+  --series-3: oklch(var(--series-l) var(--series-c) calc(var(--palette-hue) + 60));
+  --series-4: oklch(var(--series-l) var(--series-c) calc(var(--palette-hue) + 210));
+  --series-5: oklch(var(--series-l) var(--series-c) calc(var(--palette-hue) + 300));
+  --series-6: oklch(var(--series-l) var(--series-c) calc(var(--palette-hue) + 100));
+  --series-7: oklch(var(--series-l) var(--series-c) calc(var(--palette-hue) + 30));
+  --series-8: oklch(var(--series-l) var(--series-c) calc(var(--palette-hue) + 250));
+
   --sidebar: oklch(0.98 0 0);
   --sidebar-foreground: oklch(0.15 0 0);
-  --sidebar-primary: oklch(0.55 0.24 264);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.95 0.015 264);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--brand-fg);
+  --sidebar-accent: oklch(0.95 0.015 var(--palette-hue));
   --sidebar-accent-foreground: oklch(0.15 0 0);
   --sidebar-border: var(--border);
-  --sidebar-ring: oklch(0.55 0.24 264);
+  --sidebar-ring: var(--primary);
+}
+
+html[data-palette="indigo"] { --palette-hue: 264; }
+html[data-palette="blue"] { --palette-hue: 230; }
+html[data-palette="violet"] { --palette-hue: 292; }
+html[data-palette="rose"] { --palette-hue: 350; }
+html[data-palette="red"] { --palette-hue: 25; }
+html[data-palette="green"] { --palette-hue: 152; }
+html[data-palette="teal"] { --palette-hue: 190; }
+html[data-palette="orange"] { --palette-hue: 52; }
+html[data-palette="amber"] { --palette-hue: 78; }
+
+html[data-palette="orange"]:not(.dark) {
+  --brand-l: 0.52;
+  --brand-c: 0.16;
+}
+html[data-palette="amber"]:not(.dark) {
+  --brand-l: 0.47;
+  --brand-c: 0.12;
+  --brand-fg: oklch(0.99 0.015 95);
 }
 
 .dark {
   /* Elevation is luminosity, not shadow: each level is a step lighter. */
+  --brand-l: 0.65;
+  --brand-c: 0.24;
+  --brand-fg: oklch(0.985 0 0);
+
   --background: oklch(0.12 0 0);
   --foreground: oklch(0.98 0 0);
   --card: oklch(0.16 0 0);
   --card-foreground: oklch(0.98 0 0);
   --popover: oklch(0.2 0 0);
   --popover-foreground: oklch(0.98 0 0);
-  --primary: oklch(0.65 0.24 264);
-  --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.22 0 0);
   --secondary-foreground: oklch(0.98 0 0);
   --muted: oklch(0.22 0 0);
   --muted-foreground: oklch(0.6 0 0);
-  --accent: oklch(0.24 0.03 264);
+  --accent: oklch(0.24 0.03 var(--palette-hue));
   --accent-foreground: oklch(0.98 0 0);
   --destructive: oklch(0.65 0.22 27);
   --destructive-foreground: oklch(0.75 0.16 27);
   --border: oklch(1 0 0 / 10%);
+  --border-strong: oklch(1 0 0 / 20%);
   --input: oklch(0.25 0 0);
-  --ring: oklch(0.65 0.24 264);
 
   --success: oklch(0.7 0.15 155);
   --success-foreground: oklch(0.78 0.14 155);
   --warning: oklch(0.78 0.16 75);
   --warning-foreground: oklch(0.83 0.14 80);
-  --info: oklch(0.65 0.24 264);
-  --info-foreground: oklch(0.75 0.16 264);
+  --info-foreground: oklch(0.75 0.16 var(--palette-hue));
   --invert: oklch(0.92 0 0);
   --invert-foreground: oklch(0.15 0 0);
 
-  --chart-1: oklch(0.65 0.24 264);
-  --chart-2: oklch(0.72 0.17 264);
-  --chart-3: oklch(0.8 0.1 264);
+  --chart-2: oklch(0.72 0.17 var(--palette-hue));
+  --chart-3: oklch(0.8 0.1 var(--palette-hue));
   --chart-4: oklch(0.6 0 0);
   --chart-5: oklch(0.4 0 0);
 
+  --series-l: 0.72;
+  --series-c: 0.14;
+
   --sidebar: oklch(0.14 0 0);
   --sidebar-foreground: oklch(0.98 0 0);
-  --sidebar-primary: oklch(0.65 0.24 264);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.22 0.02 264);
+  --sidebar-accent: oklch(0.22 0.02 var(--palette-hue));
   --sidebar-accent-foreground: oklch(0.98 0 0);
   --sidebar-border: var(--border);
-  --sidebar-ring: oklch(0.65 0.24 264);
+}
+
+/* Yellows at the shared dark lightness wash out. Darken the ink, lighten the fill. */
+html.dark[data-palette="orange"] {
+  --brand-l: 0.74;
+  --brand-c: 0.15;
+  --brand-fg: oklch(0.27 0.04 52);
+}
+html.dark[data-palette="amber"] {
+  --brand-l: 0.8;
+  --brand-c: 0.13;
+  --brand-fg: oklch(0.3 0.05 78);
 }
 
 @layer base {
@@ -239,24 +299,6 @@
   }
 }
 
-/* Route change: the page content crossfades in 150ms. The shell (sidebar,
-   header) lives in the root snapshot and crossfades with the same timing. */
-@keyframes page-fade-in {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes page-fade-out {
-  to {
-    opacity: 0;
-  }
-}
-::view-transition-old(.page-exit) {
-  animation: 150ms var(--ease-out) both page-fade-out;
-}
-::view-transition-new(.page-enter) {
-  animation: 150ms var(--ease-out) both page-fade-in;
-}
 /* The theme switch sets these on <html> for its whole-page crossfade (the
    view transition pseudo-elements inherit from it). A compound selector like
    html[data-x]::view-transition-old(root) is dropped by the CSS pipeline. */

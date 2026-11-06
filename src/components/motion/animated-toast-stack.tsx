@@ -119,8 +119,8 @@ const STATUS_CLASS: Record<ToastStatus, string> = {
   neutral: "text-muted-foreground bg-muted/60",
   info: "text-primary bg-muted",
   loading: "text-primary bg-muted",
-  success: "text-emerald-600 bg-emerald-500/10 dark:text-emerald-400",
-  warning: "text-amber-600 bg-amber-500/10 dark:text-amber-400",
+  success: "text-success-foreground bg-success/10",
+  warning: "text-warning-foreground bg-warning/10",
   error: "text-destructive bg-destructive/10",
 };
 
@@ -491,7 +491,7 @@ const ToastItem = memo(function ToastItem({
               <button
                 type="button"
                 onClick={() => onDismiss?.(toast.id)}
-                aria-label="Dismiss toast"
+                aria-label="Dispensar notificação"
                 className={cn(
                   "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground",
                   classNames?.close,

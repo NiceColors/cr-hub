@@ -18,10 +18,18 @@ export type TableColumn<T> = {
   align?: "left" | "center" | "right";
   /** Column width as a CSS length, e.g. "160px" or "20%". Omit to share remaining space equally. */
   width?: string;
+  /**
+   * Clip overflowing text with an ellipsis. Turn off for cells that render a
+   * control, so the clip marker does not sit next to the control's own icon.
+   * Defaults to true.
+   */
+  truncate?: boolean;
   /** Custom cell renderer. Falls back to `row[key]`. */
   cell?: (row: T) => ReactNode;
   /** Render an inline text input for this column's cells (ignored when `cell` is set). */
   editable?: boolean;
+  /** Hide the column below this breakpoint, to keep narrow screens readable. */
+  hideBelow?: "sm" | "md" | "lg";
   /** Value used for sorting. Falls back to `row[key]`. */
   sortValue?: (row: T) => string | number;
 };
@@ -41,6 +49,11 @@ export interface TableProps<T> {
   sort?: SortState | null;
   defaultSort?: SortState | null;
   onSortChange?: (sort: SortState | null) => void;
+  /**
+   * The caller already sorted `data` (e.g. before paginating), so headers show
+   * the sort but rows keep the given order.
+   */
+  manualSort?: boolean;
   /** Allow dragging the right edge of a header to resize that column. */
   resizable?: boolean;
   /** Minimum column width in px when resizing. */
@@ -65,6 +78,11 @@ export interface TableProps<T> {
   rowHeight?: number;
   /** Scroll viewport height in px. */
   height?: number;
+  /**
+   * Size the table to its container. Columns share that width and the
+   * viewport scrolls only vertically.
+   */
+  fitContainer?: boolean;
   /** Rows rendered above/below the viewport. */
   overscan?: number;
   /** Fires when the viewport scrolls near the bottom — load the next page. */
@@ -81,6 +99,11 @@ export interface TableProps<T> {
   getRowLabel?: (row: T) => string;
   /** Extra classes per row, e.g. to dim muted rows. */
   getRowClassName?: (row: T) => string | undefined;
+  /**
+   * Inserts a header row before each contiguous run of rows that share an id.
+   * The data must already be ordered by group; column sort splits the runs.
+   */
+  getRowGroup?: (row: T) => { id: string; label: ReactNode } | null;
 }
 
 /** A data row paired with its stable id. */

@@ -13,6 +13,27 @@ export function alignFlex(align: TableColumn<unknown>["align"]) {
   return "justify-start";
 }
 
+const HIDE_CELL = {
+  sm: "hidden sm:table-cell",
+  md: "hidden md:table-cell",
+  lg: "hidden lg:table-cell",
+} as const;
+const HIDE_COL = {
+  sm: "hidden sm:table-column",
+  md: "hidden md:table-column",
+  lg: "hidden lg:table-column",
+} as const;
+
+/** Classes that drop a column's cells below its `hideBelow` breakpoint. */
+export function hideCell(hideBelow: TableColumn<unknown>["hideBelow"]) {
+  return hideBelow ? HIDE_CELL[hideBelow] : undefined;
+}
+
+/** Same as `hideCell`, for the column's <col>. */
+export function hideCol(hideBelow: TableColumn<unknown>["hideBelow"]) {
+  return hideBelow ? HIDE_COL[hideBelow] : undefined;
+}
+
 export function alignText(align: TableColumn<unknown>["align"]) {
   if (align === "right") return "text-right";
   if (align === "center") return "text-center";

@@ -1,4 +1,4 @@
-import type { AnimatedToast, ToastStatus } from "@/components/motion/animated-toast-stack";
+import type { AnimatedToast, AnimatedToastAction, ToastStatus } from "@/components/motion/animated-toast-stack";
 
 const DEFAULT_DURATION_MS = 4200;
 const MAX_TOASTS = 5;
@@ -20,21 +20,39 @@ function dismiss(id: string) {
   emit(toasts.filter((t) => t.id !== id));
 }
 
-function show(status: ToastStatus, title: string) {
+function show(status: ToastStatus, title: string, extra?: { action?: AnimatedToastAction; description?: string }) {
   const id = `toast-${Date.now()}-${seed++}`;
-  emit([...toasts, { id, title, status, dismissible: true, createdAt: Date.now() }].slice(-MAX_TOASTS));
+  emit(
+    [
+      ...toasts,
+      {
+        id,
+        title,
+        status,
+        dismissible: true,
+        createdAt: Date.now(),
+        action: extra?.action,
+        description: extra?.description,
+      },
+    ].slice(-MAX_TOASTS),
+  );
+  const duration = extra?.action ? 8000 : DEFAULT_DURATION_MS;
   timers.set(
     id,
-    setTimeout(() => dismiss(id), DEFAULT_DURATION_MS),
+    setTimeout(() => dismiss(id), duration),
   );
   return id;
 }
 
 export const toast = {
-  success: (title: string) => show("success", title),
-  warning: (title: string) => show("warning", title),
-  error: (title: string) => show("error", title),
-  info: (title: string) => show("info", title),
+  success: (title: string, extra?: { action?: AnimatedToastAction; description?: string }) =>
+    show("success", title, extra),
+  warning: (title: string, extra?: { action?: AnimatedToastAction; description?: string }) =>
+    show("warning", title, extra),
+  error: (title: string, extra?: { action?: AnimatedToastAction; description?: string }) =>
+    show("error", title, extra),
+  info: (title: string, extra?: { action?: AnimatedToastAction; description?: string }) =>
+    show("info", title, extra),
   dismiss,
 };
 

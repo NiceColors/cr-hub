@@ -389,7 +389,7 @@ function MobileSidebar({
     >
       <motion.button
         type="button"
-        aria-label="Close sidebar"
+        aria-label="Fechar menu lateral"
         tabIndex={context.openMobile ? 0 : -1}
         initial={false}
         animate={{ opacity: context.openMobile ? 1 : 0 }}
@@ -398,7 +398,7 @@ function MobileSidebar({
         }
         onClick={() => context.setOpenMobile(false)}
         className={cn(
-          "fixed inset-0 bg-black/40",
+          "fixed inset-0 bg-background/40 backdrop-blur-[2px]",
           context.openMobile
             ? "pointer-events-auto"
             : "pointer-events-none",
@@ -557,7 +557,15 @@ export const AnimatedSidebar = forwardRef<HTMLElement, AnimatedSidebarProps>(
           className,
         )}
       >
+        {/*
+          Fixed rather than sticky: Motion only treats a `position: fixed`
+          node marked `layoutScroll` as a scroll root, measuring its subtree in
+          viewport coordinates. A sticky panel is measured in page coordinates
+          instead, so the scroll reset of a route change reads as the whole
+          panel moving and its layout animations fly in from below.
+        */}
         <motion.div
+          layoutScroll
           initial={false}
           animate={{
             opacity: offcanvas ? 0 : 1,
@@ -567,7 +575,8 @@ export const AnimatedSidebar = forwardRef<HTMLElement, AnimatedSidebarProps>(
             context.reduce ? REDUCED_TRANSITION : PANEL_TRANSITION
           }
           className={cn(
-            "sticky top-0 flex h-svh w-full flex-col overflow-hidden bg-background",
+            "fixed top-0 flex h-svh w-[inherit] flex-col overflow-hidden bg-background",
+            side === "left" ? "left-0" : "right-0",
             collapsible === "offcanvas" && "w-[var(--sidebar-width)]",
             variant === "sidebar" &&
               (side === "left" ? "border-border border-r" : "border-border border-l"),
@@ -610,7 +619,7 @@ export const AnimatedSidebarTrigger = forwardRef<
         else if (forwardedRef) forwardedRef.current = node;
       }}
       type={type}
-      aria-label={props["aria-label"] ?? "Toggle sidebar"}
+      aria-label={props["aria-label"] ?? "Alternar menu lateral"}
       aria-expanded={expanded}
       data-slot="sidebar-trigger"
       data-state={expanded ? "expanded" : "collapsed"}
@@ -644,7 +653,7 @@ export const AnimatedSidebarClose = forwardRef<
       {...props}
       ref={forwardedRef}
       type={type}
-      aria-label={props["aria-label"] ?? "Close sidebar"}
+      aria-label={props["aria-label"] ?? "Fechar menu lateral"}
       onClick={(event) => {
         onClick?.(event);
         if (event.defaultPrevented) return;
@@ -679,8 +688,8 @@ export const AnimatedSidebarRail = forwardRef<
       ref={forwardedRef}
       type={type}
       data-side={panel.side}
-      aria-label={props["aria-label"] ?? "Toggle sidebar"}
-      title="Toggle sidebar"
+      aria-label={props["aria-label"] ?? "Alternar menu lateral"}
+      title="Alternar menu lateral"
       tabIndex={-1}
       onClick={(event) => {
         onClick?.(event);

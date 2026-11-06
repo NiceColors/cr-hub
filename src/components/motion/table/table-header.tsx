@@ -22,7 +22,7 @@ import type {
   SortState,
   TableColumn,
 } from "./types";
-import { alignFlex, alignText, COLUMN_ACTIVE_SHADOW } from "./utils";
+import { alignFlex, alignText, COLUMN_ACTIVE_SHADOW, hideCell } from "./utils";
 
 export interface TableHeaderProps<T> {
   filler: boolean;
@@ -193,7 +193,7 @@ export function TableHeader<T>({
                 checked={allSelected}
                 indeterminate={!allSelected && someSelected}
                 onCheckedChange={onToggleAll}
-                aria-label="Select all rows"
+                aria-label="Selecionar todas as linhas"
                 className="size-6"
               />
             </div>
@@ -227,6 +227,7 @@ export function TableHeader<T>({
               }
               className={cn(
                 "group sticky top-0 z-10 border-border border-b bg-muted p-0 font-medium text-muted-foreground",
+                hideCell(column.hideBelow),
                 "data-[drop=true]:before:absolute data-[drop=true]:before:inset-y-0 data-[drop=true]:before:left-0 data-[drop=true]:before:w-0.5 data-[drop=true]:before:bg-primary",
                 "data-[dropend=true]:after:absolute data-[dropend=true]:after:inset-y-0 data-[dropend=true]:after:right-0 data-[dropend=true]:after:w-0.5 data-[dropend=true]:after:bg-primary",
               )}
@@ -270,6 +271,7 @@ export function TableHeader<T>({
                     onClick={() => onToggleSort(column.key)}
                     className={cn(
                       "flex h-full min-w-0 flex-1 select-none items-center gap-1 px-4 transition-colors hover:text-foreground",
+                      "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid",
                       alignFlex(column.align),
                       active && "text-foreground",
                     )}

@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import type { TableColumn } from "./types";
-import { alignText } from "./utils";
+import { alignText, hideCell } from "./utils";
 
 export function SkeletonRows<T>({
   count,
@@ -24,7 +24,7 @@ export function SkeletonRows<T>({
         <tr key={r} style={{ height: rowHeight }} className="border-border/60 border-b">
           {selectable ? <td /> : null}
           {columns.map((column) => (
-            <td key={column.key} className={cn("px-4", alignText(column.align))}>
+            <td key={column.key} className={cn("px-4", hideCell(column.hideBelow), alignText(column.align))}>
               <div
                 className={cn(
                   "h-3 animate-pulse rounded-full bg-muted",

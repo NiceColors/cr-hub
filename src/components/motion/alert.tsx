@@ -43,8 +43,8 @@ export function useAlert(): AlertState {
 const VARIANT_CLASS: Record<AlertVariant, string> = {
   default: "bg-background text-foreground",
   info: "bg-primary/5 text-primary",
-  success: "bg-emerald-500/5 text-emerald-700 dark:text-emerald-400",
-  warning: "bg-amber-500/5 text-amber-800 dark:text-amber-300",
+  success: "bg-success/5 text-success-foreground",
+  warning: "bg-warning/5 text-warning-foreground",
   destructive: "bg-destructive/5 text-destructive",
 };
 
@@ -219,7 +219,7 @@ export function AlertClose({ className, children, onClick, ...props }: AlertClos
   return (
     <motion.button
       type="button"
-      aria-label="Dismiss alert"
+      aria-label="Dispensar alerta"
       {...props}
       tabIndex={props.tabIndex ?? 0}
       data-slot="alert-close"

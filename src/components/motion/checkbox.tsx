@@ -102,7 +102,7 @@ export function Checkbox({
               }
               aria-hidden
             >
-              <title>{indeterminate ? "Partially selected" : "Selected"}</title>
+              <title>{indeterminate ? "Parcialmente selecionado" : "Selecionado"}</title>
               <motion.path
                 d={path}
                 initial={reduce ? { pathLength: 1 } : { pathLength: 0 }}

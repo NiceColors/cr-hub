@@ -2,18 +2,47 @@ import { useCallback, useMemo, useState } from "react";
 import type { SortState, TableColumn, TableRow } from "./types";
 import { readSortValue } from "./utils";
 
+/** Sorts rows by a column the same way the table header does. Returns a copy. */
+export function sortByColumn<T>(
+  data: readonly T[],
+  columns: TableColumn<T>[],
+  sort: SortState | null,
+): T[] {
+  const column = sort ? columns.find((c) => c.key === sort.key) : undefined;
+  if (!sort || !column) return [...data];
+  return sortBy(data, (row) => readSortValue(row, column), sort.direction);
+}
+
+function sortBy<R>(
+  data: readonly R[],
+  read: (row: R) => string | number,
+  direction: SortState["direction"],
+): R[] {
+  return data.toSorted((a, b) => {
+    const av = read(a);
+    const bv = read(b);
+    const cmp =
+      typeof av === "number" && typeof bv === "number"
+        ? av - bv
+        : String(av).localeCompare(String(bv));
+    return direction === "asc" ? cmp : -cmp;
+  });
+}
+
 export function useColumnSort<T>({
   rows,
   columns,
   sort: sortProp,
   defaultSort = null,
   onSortChange,
+  manualSort = false,
 }: {
   rows: TableRow<T>[];
   columns: TableColumn<T>[];
   sort?: SortState | null;
   defaultSort?: SortState | null;
   onSortChange?: (sort: SortState | null) => void;
+  manualSort?: boolean;
 }) {
   const [internalSort, setInternalSort] = useState<SortState | null>(
     defaultSort,
@@ -42,23 +71,11 @@ export function useColumnSort<T>({
   );
 
   const sortedRows = useMemo(() => {
-    if (!sort) return rows;
+    if (!sort || manualSort) return rows;
     const column = columns.find((c) => c.key === sort.key);
     if (!column) return rows;
-    const copy = [...rows];
-    copy.sort((a, b) => {
-      const av = readSortValue(a.row, column);
-      const bv = readSortValue(b.row, column);
-      let cmp: number;
-      if (typeof av === "number" && typeof bv === "number") {
-        cmp = av - bv;
-      } else {
-        cmp = String(av).localeCompare(String(bv));
-      }
-      return sort.direction === "asc" ? cmp : -cmp;
-    });
-    return copy;
-  }, [rows, sort, columns]);
+    return sortBy(rows, (entry) => readSortValue(entry.row, column), sort.direction);
+  }, [rows, sort, columns, manualSort]);
 
   return { sort, sortedRows, toggleSort };
 }

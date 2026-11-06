@@ -1,11 +1,12 @@
 "use client";
 
 import { ShieldCheckIcon } from "lucide-react";
-import { Button } from "@/components/motion/button/base";
-import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
+import { StatefulButton } from "@/components/motion/button/stateful";
+import { useMutationButtonState } from "@/hooks/use-mutation-button-state";
+import { SegmentedControl } from "@/components/segmented-control";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionHeader } from "@/components/config/section-header";
-import { TokenDot, VerifiedAgo, describeTokenStatus } from "@/components/token-status";
+import { TokenStatusMark, describeTokenStatus } from "@/components/token-status";
 import {
   useSetPollInterval,
   useSettings,
@@ -14,11 +15,17 @@ import {
 } from "@/hooks/use-config";
 import { POLL_INTERVALS, type PollInterval } from "@/lib/api/config";
 
+const INTERVAL_OPTIONS = POLL_INTERVALS.map((sec) => ({
+  value: String(sec),
+  label: <span className="font-mono">{sec}s</span>,
+}));
+
 export function PollingPanel() {
   const settings = useSettings();
   const status = useStatus();
   const setPoll = useSetPollInterval();
   const verify = useVerifyToken();
+  const verifyState = useMutationButtonState(verify);
   const current = settings.data?.pollIntervalSeconds;
   const token = describeTokenStatus(status.data, status.isLoading);
 
@@ -26,92 +33,86 @@ export function PollingPanel() {
     <div className="flex flex-col gap-4">
       <SectionHeader
         title="Atualização"
-        description="Intervalo do polling automático da fila e TTL do cache no servidor."
+        description="Intervalo da atualização automática da fila e validade do cache no servidor."
       />
 
-      <dl className="divide-y overflow-hidden rounded-2xl border bg-card">
-        <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="divide-y overflow-hidden rounded-2xl border bg-card">
+        <section className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1">
-            <dt className="text-sm font-medium">Intervalo de polling</dt>
+            <h3 className="text-sm font-medium">Intervalo de atualização</h3>
             <p className="text-xs text-muted-foreground">
-              Intervalos menores consomem mais da cota da API do Bitbucket.
+              O padrão é 1 minuto. A fila só atualiza com esta aba visível; se o
+              intervalo passar em segundo plano, a próxima consulta espera você voltar.
             </p>
           </div>
-          <dd>
-            {settings.isLoading ? (
-              <Skeleton className="h-8 w-40" />
-            ) : (
-              <Tabs
-                variant="segment"
-                value={current ? String(current) : ""}
-                onValueChange={(value) => {
-                  const next = Number(value) as PollInterval;
-                  if (next && next !== current) setPoll.mutate(next);
-                }}
-              >
-                <TabsList aria-label="Intervalo de polling" className="border border-border">
-                  {POLL_INTERVALS.map((sec) => (
-                    <TabsTrigger key={sec} value={String(sec)} className="px-3 py-1 font-mono text-xs">
-                      {sec}s
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </Tabs>
-            )}
-          </dd>
-        </div>
+          {settings.isLoading ? (
+            <Skeleton className="h-8 w-40" />
+          ) : (
+            <SegmentedControl
+              label="Intervalo de atualização"
+              value={current ? String(current) : ""}
+              onChange={(value) => {
+                const next = Number(value) as PollInterval;
+                if (next && next !== current) setPoll.mutate(next);
+              }}
+              options={INTERVAL_OPTIONS}
+              className="self-start sm:self-auto"
+            />
+          )}
+        </section>
 
-        <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-1">
-            <dt className="text-sm font-medium">Token do Bitbucket</dt>
+        <section className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <h3 className="flex items-center gap-1.5 text-sm font-medium">
+              Token do Bitbucket
+              <TokenStatusMark
+                tone={token.tone}
+                label={token.label}
+                checkedAt={status.data?.checkedAt}
+              />
+            </h3>
             <p className="text-xs text-muted-foreground">
               Derivado das chamadas já feitas ao Bitbucket. O teste manual consulta a API no
               máximo uma vez a cada 5 minutos.
             </p>
           </div>
-          <dd className="flex items-center gap-3">
-            <span className="flex flex-col items-end gap-0.5 text-sm">
-              <span className="flex items-center gap-2">
-                <TokenDot tone={token.tone} />
-                {token.label}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                <VerifiedAgo checkedAt={status.data?.checkedAt} />
-              </span>
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => verify.mutate()}
-              disabled={verify.isPending}
-            >
-              <ShieldCheckIcon className="size-3.5" />
-              Testar token
-            </Button>
-          </dd>
-        </div>
+          <StatefulButton
+            variant="outline"
+            size="sm"
+            className="shrink-0 self-start whitespace-nowrap sm:self-auto"
+            state={verifyState}
+            icon={<ShieldCheckIcon className="size-3.5" />}
+            loadingText="Testando"
+            successText="Testado"
+            errorText="Falhou"
+            onClick={() => verify.mutate()}
+          >
+            Testar token
+          </StatefulButton>
+        </section>
 
-        <div className="flex items-center justify-between gap-3 px-4 py-4">
+        <section className="flex items-center justify-between gap-3 px-4 py-4">
           <div className="flex flex-col gap-1">
-            <dt className="text-sm font-medium">Requisições na última hora</dt>
+            <h3 className="text-sm font-medium">Requisições na última hora</h3>
             <p className="text-xs text-muted-foreground">
-              Janela deslizante em memória, reiniciada com o servidor.
+              Uma por atualização da fila no intervalo, com a aba aberta, ou por
+              Atualizar. Não conta cada repositório.
             </p>
           </div>
-          <dd className="font-mono text-2xl font-semibold tabular-nums">
+          <p className="font-mono text-2xl font-semibold tabular-nums">
             {status.data?.requestsLastHour ?? "—"}
-          </dd>
-        </div>
+          </p>
+        </section>
 
         {status.data?.retryAfterSeconds ? (
-          <div className="flex items-center justify-between gap-3 px-4 py-4">
-            <dt className="text-sm font-medium">Rate limit ativo</dt>
-            <dd className="font-mono text-sm text-warning-foreground tabular-nums">
+          <section className="flex items-center justify-between gap-3 px-4 py-4">
+            <h3 className="text-sm font-medium">Limite da API atingido</h3>
+            <p className="font-mono text-sm text-warning-foreground tabular-nums">
               nova tentativa em {status.data.retryAfterSeconds}s
-            </dd>
-          </div>
+            </p>
+          </section>
         ) : null}
-      </dl>
+      </div>
     </div>
   );
 }

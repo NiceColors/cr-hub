@@ -2,7 +2,7 @@
 
 import { BellRingIcon, MonitorDownIcon } from "lucide-react";
 import { Button } from "@/components/motion/button/base";
-import { Checkbox } from "@/components/motion/checkbox";
+import { Switch } from "@/components/motion/switch";
 import { SectionHeader } from "@/components/config/section-header";
 import { NOTIFICATION_TYPES } from "@/domain/attention";
 import {
@@ -34,56 +34,56 @@ export function NotificationsPanel() {
   return (
     <div className="flex flex-col gap-4">
       <SectionHeader
-        title="Notificações e badge"
+        title="Notificações e contador"
         description="Avisos disparam só em transições e nunca se repetem. PRs silenciados não notificam. As preferências ficam salvas neste navegador."
       />
 
-      <dl className="divide-y overflow-hidden rounded-2xl border bg-card">
-        <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="divide-y overflow-hidden rounded-2xl border bg-card">
+        <section className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1">
-            <dt className="text-sm font-medium">Permissão do navegador</dt>
+            <h3 className="text-sm font-medium">Permissão do navegador</h3>
             <p className="text-xs text-muted-foreground">{PERMISSION_COPY[permission]}</p>
           </div>
-          <dd>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={askPermission}
-              disabled={permission !== "default"}
-            >
-              <BellRingIcon className="size-3.5" />
-              {permission === "granted" ? "Ativadas" : "Permitir notificações"}
-            </Button>
-          </dd>
-        </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={askPermission}
+            disabled={permission !== "default"}
+            className="self-start sm:self-auto"
+          >
+            <BellRingIcon className="size-3.5" />
+            {permission === "granted" ? "Ativadas" : "Permitir notificações"}
+          </Button>
+        </section>
 
-        <div className="flex flex-col gap-3 px-4 py-4">
-          <dt className="text-sm font-medium">Avisar quando</dt>
-          <dd className="grid gap-3 sm:grid-cols-2">
+        <fieldset className="flex flex-col gap-3 px-4 py-4">
+          <legend className="float-left mb-3 text-sm font-medium">Avisar quando</legend>
+          <div className="clear-left grid gap-4 sm:grid-cols-2">
             {NOTIFICATION_TYPES.map((type) => (
-              <Checkbox
+              <Switch
                 key={type}
+                size="sm"
                 checked={prefs[type]}
                 onCheckedChange={(checked) => setNotificationPref(type, checked)}
                 label={NOTIFICATION_LABELS[type].title}
                 description={NOTIFICATION_LABELS[type].hint}
               />
             ))}
-          </dd>
-        </div>
+          </div>
+        </fieldset>
 
-        <div className="flex gap-3 px-4 py-4">
+        <section className="flex gap-3 px-4 py-4">
           <MonitorDownIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="flex flex-col gap-1">
-            <dt className="text-sm font-medium">Badge na barra de tarefas</dt>
-            <dd className="text-xs text-muted-foreground">
+            <h3 className="text-sm font-medium">Ícone na barra de tarefas</h3>
+            <p className="text-xs text-muted-foreground">
               Instale o app pelo ícone de instalação na barra de endereço do Chrome ou do Edge. O
               ícone instalado mostra quantos PRs esperam sua revisão, como um app de e-mail. O
               número atualiza enquanto o app está aberto, mesmo minimizado.
-            </dd>
+            </p>
           </div>
-        </div>
-      </dl>
+        </section>
+      </div>
     </div>
   );
 }

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { BookmarkIcon, CheckIcon, PencilIcon, Trash2Icon, XIcon } from "lucide-react";
+import { BookmarkIcon, CheckIcon, PencilIcon, XIcon } from "lucide-react";
+import { HoldToDelete } from "@/components/hold-to-delete";
 import { Button } from "@/components/motion/button/base";
 import { Input } from "@/components/motion/input";
 import {
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionHeader } from "@/components/config/section-header";
+import { QueryError } from "@/components/query-error";
 import {
   useDeleteSavedView,
   useSavedViews,
@@ -39,7 +41,6 @@ function ViewRow({ view, teamName }: { view: SavedView; teamName: string | null 
   const remove = useDeleteSavedView();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(view.name);
-  const [confirming, setConfirming] = useState(false);
   const rules = countRules(view.filterQuery);
 
   function rename(e: React.FormEvent) {
@@ -101,36 +102,18 @@ function ViewRow({ view, teamName }: { view: SavedView; teamName: string | null 
         </div>
       )}
 
-      {confirming ? (
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="text-xs">Excluir “{view.name}”?</span>
-          <Button size="sm" variant="outline" onClick={() => setConfirming(false)}>
-            Cancelar
-          </Button>
-          <Button
-            size="sm"
-            variant="destructive"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate(view.id)}
-          >
-            Excluir
-          </Button>
-        </div>
-      ) : editing ? null : (
+      {editing ? null : (
         <div className="flex shrink-0 items-center gap-1">
           <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
             <PencilIcon className="size-3.5" />
             Renomear
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-destructive"
-            onClick={() => setConfirming(true)}
-          >
-            <Trash2Icon className="size-3.5" />
-            Excluir
-          </Button>
+          <HoldToDelete
+            label="Segure para excluir"
+            itemName={`a visão ${view.name}`}
+            disabled={remove.isPending}
+            onDelete={() => remove.mutate(view.id)}
+          />
         </div>
       )}
     </li>
@@ -151,6 +134,13 @@ export function ViewsPanel() {
       />
       {views.isLoading ? (
         <Skeleton className="h-14 w-full rounded-2xl" />
+      ) : views.isError && !views.data ? (
+        <QueryError
+          title="Não foi possível carregar as visões"
+          error={views.error}
+          onRetry={() => views.refetch()}
+          retrying={views.isFetching}
+        />
       ) : list.length === 0 ? (
         <Empty className="border py-10">
           <EmptyHeader>

@@ -11,12 +11,15 @@ import {
 } from "@/components/motion/alert";
 import { AnimatedBadge } from "@/components/motion/animated-badge";
 import { Button } from "@/components/motion/button/base";
-import { Checkbox } from "@/components/motion/checkbox";
+import { StatefulButton } from "@/components/motion/button/stateful";
+import { useMutationButtonState } from "@/hooks/use-mutation-button-state";
+import { Switch } from "@/components/motion/switch";
 import { Input } from "@/components/motion/input";
 import { Table, type TableColumn } from "@/components/motion/table";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SectionHeader } from "@/components/config/section-header";
 import { TableSearch, matchesSearch } from "@/components/config/table-search";
+import { QueryError } from "@/components/query-error";
 import {
   useAddMember,
   useMembers,
@@ -33,10 +36,11 @@ function memberRowId(member: Member) {
   return member.uuid;
 }
 
-function MonitorCheckbox({ member }: { member: Member }) {
+function MonitorSwitch({ member }: { member: Member }) {
   const update = useUpdateMember();
   return (
-    <Checkbox
+    <Switch
+      size="sm"
       checked={member.monitored}
       onCheckedChange={(checked) => update.mutate({ uuid: member.uuid, monitored: checked })}
       aria-label={`Monitorar ${member.displayName}`}
@@ -51,7 +55,7 @@ const columns: TableColumn<Member>[] = [
     sortable: true,
     sortValue: (m) => (m.monitored ? 1 : 0),
     width: "130px",
-    cell: (m) => <MonitorCheckbox member={m} />,
+    cell: (m) => <MonitorSwitch member={m} />,
   },
   {
     key: "displayName",
@@ -91,7 +95,7 @@ const columns: TableColumn<Member>[] = [
         </AnimatedBadge>
       ) : (
         <AnimatedBadge status="info" size="sm" showIcon={false}>
-          Workspace
+          Sincronizado
         </AnimatedBadge>
       ),
   },
@@ -147,8 +151,10 @@ function AddMemberForm() {
 }
 
 export function MembersPanel() {
-  const { data, isLoading } = useMembers();
+  const membersQuery = useMembers();
+  const { data, isLoading } = membersQuery;
   const sync = useSyncMembers();
+  const syncState = useMutationButtonState(sync);
   const [search, setSearch] = useState("");
 
   const members = data?.members;
@@ -174,15 +180,18 @@ export function MembersPanel() {
         actions={
           <>
             <TableSearch value={search} onChange={setSearch} placeholder="Filtrar membros…" />
-            <Button
+            <StatefulButton
               variant="outline"
               size="sm"
+              state={syncState}
+              icon={<RefreshCwIcon className="size-3.5" />}
+              loadingText="Sincronizando"
+              successText="Sincronizado"
+              errorText="Falhou"
               onClick={() => sync.mutate()}
-              disabled={sync.isPending}
             >
-              <RefreshCwIcon className={cn("size-3.5", sync.isPending && "animate-spin")} />
               Sincronizar
-            </Button>
+            </StatefulButton>
           </>
         }
       />
@@ -198,6 +207,14 @@ export function MembersPanel() {
         </AlertContent>
       </Alert>
 
+      {membersQuery.isError && !data ? (
+        <QueryError
+          title="Não foi possível carregar os membros"
+          error={membersQuery.error}
+          onRetry={() => membersQuery.refetch()}
+          retrying={membersQuery.isFetching}
+        />
+      ) : (
       <Table
         data={visible}
         columns={columns}
@@ -213,6 +230,7 @@ export function MembersPanel() {
         }
         className="rounded-2xl"
       />
+      )}
 
       <div className="flex flex-col gap-3">
         <SectionHeader

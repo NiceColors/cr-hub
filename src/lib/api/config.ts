@@ -9,6 +9,17 @@ export const repositorySchema = z.object({
   minApprovals: z.number(),
   slaWarningHours: z.number().nullable(),
   slaCriticalHours: z.number().nullable(),
+  syncedAt: z.number().nullable(),
+  description: z.string().nullable(),
+  language: z.string().nullable(),
+  isPrivate: z.boolean().nullable(),
+  mainBranch: z.string().nullable(),
+  projectKey: z.string().nullable(),
+  projectName: z.string().nullable(),
+  htmlUrl: z.string().nullable(),
+  updatedOn: z.string().nullable(),
+  openPullRequests: z.number(),
+  teams: z.array(z.object({ id: z.number(), name: z.string() })),
 });
 
 export const memberSchema = z.object({
@@ -26,6 +37,10 @@ export const teamSchema = z.object({
   createdAt: z.number(),
   memberUuids: z.array(z.string()),
   repositoryUuids: z.array(z.string()),
+  rotation: z
+    .object({ memberUuids: z.array(z.string()), startDate: z.string() })
+    .nullable()
+    .default(null),
 });
 
 const repositoriesResponse = z.object({ repositories: z.array(repositorySchema) });
@@ -88,7 +103,7 @@ export type Team = z.infer<typeof teamSchema>;
 export type Settings = z.infer<typeof settingsResponse>;
 export type Status = z.infer<typeof statusResponse>;
 export type PollInterval = 30 | 60 | 120;
-export type TeamInput = Pick<Team, "name" | "memberUuids" | "repositoryUuids">;
+export type TeamInput = Pick<Team, "name" | "memberUuids" | "repositoryUuids" | "rotation">;
 export type SavedView = z.infer<typeof savedViewSchema>;
 export type SavedViewInput = Omit<SavedView, "id" | "createdAt">;
 export type RepositoryPatch = Partial<
@@ -98,6 +113,7 @@ export type JiraSettings = Pick<Settings, "jiraBaseUrl" | "jiraProjectKeys">;
 export type Credentials = z.infer<typeof credentialsResponse>;
 export type CredentialsInput = { workspace: string; email: string; apiToken: string | null };
 
+export const DEFAULT_POLL_INTERVAL_SECONDS = 60 satisfies PollInterval;
 export const POLL_INTERVALS: readonly PollInterval[] = [30, 60, 120];
 
 export const configApi = {

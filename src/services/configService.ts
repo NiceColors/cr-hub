@@ -1,14 +1,17 @@
 import { db } from "@/lib/db";
 import {
   members,
+  prHistory,
   repositories,
   savedViews,
   settings,
   teamMembers,
   teamRepositories,
+  teamRotations,
   teams,
 } from "@/lib/db/schema";
-import { asc, eq, inArray } from "drizzle-orm";
+import type { Rotation } from "@/domain/rotation";
+import { asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { clearPullRequestsCache } from "@/lib/pullRequestsCache";
 
 export type PollIntervalSeconds = 30 | 60 | 120;
@@ -16,7 +19,7 @@ export type PollIntervalSeconds = 30 | 60 | 120;
 export function getSettings() {
   const row = db.select().from(settings).where(eq(settings.id, 1)).get();
   if (row) return row;
-  db.insert(settings).values({ id: 1, pollIntervalSeconds: 30 }).run();
+  db.insert(settings).values({ id: 1, pollIntervalSeconds: 60 }).run();
   return db.select().from(settings).where(eq(settings.id, 1)).get()!;
 }
 
@@ -40,6 +43,82 @@ export function setJiraSettings(input: { baseUrl: string | null; projectKeys: st
 
 export function listRepositories() {
   return db.select().from(repositories).all();
+}
+
+export type RepositoryTeamRef = { id: number; name: string };
+
+export type RepositoryCatalogItem = {
+  uuid: string;
+  slug: string;
+  name: string;
+  monitored: boolean;
+  minApprovals: number;
+  slaWarningHours: number | null;
+  slaCriticalHours: number | null;
+  syncedAt: number | null;
+  description: string | null;
+  language: string | null;
+  isPrivate: boolean | null;
+  mainBranch: string | null;
+  projectKey: string | null;
+  projectName: string | null;
+  htmlUrl: string | null;
+  updatedOn: string | null;
+  openPullRequests: number;
+  teams: RepositoryTeamRef[];
+};
+
+export function listRepositoryCatalog(): RepositoryCatalogItem[] {
+  const rows = listRepositories();
+  const openCounts = db
+    .select({
+      repoUuid: prHistory.repoUuid,
+      total: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(prHistory)
+    .where(isNull(prHistory.closedAt))
+    .groupBy(prHistory.repoUuid)
+    .all();
+  const openByRepo = new Map(openCounts.map((row) => [row.repoUuid, row.total]));
+
+  const links = db
+    .select({
+      repositoryUuid: teamRepositories.repositoryUuid,
+      id: teams.id,
+      name: teams.name,
+    })
+    .from(teamRepositories)
+    .innerJoin(teams, eq(teams.id, teamRepositories.teamId))
+    .all();
+  const teamsByRepo = new Map<string, RepositoryTeamRef[]>();
+  for (const link of links) {
+    const list = teamsByRepo.get(link.repositoryUuid) ?? [];
+    list.push({ id: link.id, name: link.name });
+    teamsByRepo.set(link.repositoryUuid, list);
+  }
+
+  return rows.map((row) => ({
+    uuid: row.uuid,
+    slug: row.slug,
+    name: row.name,
+    monitored: row.monitored,
+    minApprovals: row.minApprovals,
+    slaWarningHours: row.slaWarningHours,
+    slaCriticalHours: row.slaCriticalHours,
+    syncedAt: row.syncedAt ? row.syncedAt.getTime() : null,
+    description: row.description,
+    language: row.language,
+    isPrivate: row.isPrivate,
+    mainBranch: row.mainBranch,
+    projectKey: row.projectKey,
+    projectName: row.projectName,
+    htmlUrl: row.htmlUrl,
+    updatedOn: row.updatedOn,
+    openPullRequests: openByRepo.get(row.uuid) ?? 0,
+    teams: (teamsByRepo.get(row.uuid) ?? []).toSorted((a, b) =>
+      a.name.localeCompare(b.name, "pt"),
+    ),
+  }));
 }
 
 export function getRepository(uuid: string) {
@@ -119,11 +198,50 @@ export type Team = {
   createdAt: number; // ms
   memberUuids: string[];
   repositoryUuids: string[];
+  rotation: Rotation | null;
 };
+
+export type TeamInput = {
+  name: string;
+  memberUuids: string[];
+  repositoryUuids: string[];
+  rotation?: Rotation | null;
+};
+
+function parseRotation(row: typeof teamRotations.$inferSelect | undefined): Rotation | null {
+  if (!row) return null;
+  try {
+    const memberUuids = JSON.parse(row.memberUuids);
+    return Array.isArray(memberUuids)
+      ? { memberUuids: memberUuids.filter((u) => typeof u === "string"), startDate: row.startDate }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** A escala só pode ter membros do time; `undefined` mantém a atual. */
+function writeRotation(tx: Tx, teamId: number, rotation: Rotation | null | undefined, members: string[]) {
+  if (rotation === undefined) return;
+  tx.delete(teamRotations).where(eq(teamRotations.teamId, teamId)).run();
+  if (!rotation) return;
+  const allowed = new Set(members);
+  const order = [...new Set(rotation.memberUuids)].filter((uuid) => allowed.has(uuid));
+  if (order.length === 0) return;
+  tx.insert(teamRotations)
+    .values({ teamId, memberUuids: JSON.stringify(order), startDate: rotation.startDate })
+    .run();
+}
 
 export function listTeams(): Team[] {
   const teamRows = db.select().from(teams).all();
   const ids = teamRows.map((t) => t.id);
+  const rotationRows = ids.length
+    ? db.select().from(teamRotations).where(inArray(teamRotations.teamId, ids)).all()
+    : [];
+  const rotationByTeam = new Map(rotationRows.map((r) => [r.teamId, r]));
   const memberRows = ids.length
     ? db.select().from(teamMembers).where(inArray(teamMembers.teamId, ids)).all()
     : [];
@@ -154,14 +272,11 @@ export function listTeams(): Team[] {
     createdAt: t.createdAt.getTime(),
     memberUuids: membersByTeam.get(t.id) ?? [],
     repositoryUuids: reposByTeam.get(t.id) ?? [],
+    rotation: parseRotation(rotationByTeam.get(t.id)),
   }));
 }
 
-export function createTeam(input: {
-  name: string;
-  memberUuids: string[];
-  repositoryUuids: string[];
-}) {
+export function createTeam(input: TeamInput) {
   db.transaction((tx) => {
     const created = tx
       .insert(teams)
@@ -192,27 +307,36 @@ export function createTeam(input: {
         .values(existing.map((uuid) => ({ teamId, repositoryUuid: uuid })))
         .run();
     }
+
+    writeRotation(tx, teamId, input.rotation, input.memberUuids);
   });
 }
 
-export function updateTeam(
-  id: number,
-  input: { name: string; memberUuids: string[]; repositoryUuids: string[] },
-) {
+export function updateTeam(id: number, input: TeamInput) {
   db.transaction((tx) => {
     tx.update(teams).set({ name: input.name.trim() }).where(eq(teams.id, id)).run();
 
     tx.delete(teamMembers).where(eq(teamMembers.teamId, id)).run();
+    let memberUuids: string[] = [];
     if (input.memberUuids.length) {
-      const existing = tx
+      memberUuids = tx
         .select({ uuid: members.uuid })
         .from(members)
         .where(inArray(members.uuid, input.memberUuids))
         .all()
         .map((r) => r.uuid);
       tx.insert(teamMembers)
-        .values(existing.map((uuid) => ({ teamId: id, memberUuid: uuid })))
+        .values(memberUuids.map((uuid) => ({ teamId: id, memberUuid: uuid })))
         .run();
+    }
+    if (input.rotation === undefined) {
+      // Sem escala no payload: mantém a atual, sem membros que saíram do time.
+      const current = parseRotation(
+        tx.select().from(teamRotations).where(eq(teamRotations.teamId, id)).get(),
+      );
+      writeRotation(tx, id, current, memberUuids);
+    } else {
+      writeRotation(tx, id, input.rotation, memberUuids);
     }
 
     tx.delete(teamRepositories).where(eq(teamRepositories.teamId, id)).run();
@@ -249,6 +373,7 @@ export function getTeam(id: number) {
     .from(teamRepositories)
     .where(eq(teamRepositories.teamId, id))
     .all();
+  const rotationRow = db.select().from(teamRotations).where(eq(teamRotations.teamId, id)).get();
 
   return {
     id: teamRow.id,
@@ -256,6 +381,7 @@ export function getTeam(id: number) {
     createdAt: teamRow.createdAt.getTime(),
     memberUuids: memberRows.map((r) => r.memberUuid),
     repositoryUuids: repoRows.map((r) => r.repositoryUuid),
+    rotation: parseRotation(rotationRow),
   };
 }
 

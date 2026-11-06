@@ -29,6 +29,55 @@
       "when": 1792700000000,
       "tag": "0003_bitbucket_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792710000000,
+      "tag": "0004_rotation_focus_report",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792800000000,
+      "tag": "0005_projects",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792900000000,
+      "tag": "0006_repository_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793000000000,
+      "tag": "0007_review_bench",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793100000000,
+      "tag": "0008_review_scopes",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1793200000000,
+      "tag": "0009_pr_complexity",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793300000000,
+      "tag": "0010_review_projects",
+      "breakpoints": true
     }
   ]
 }

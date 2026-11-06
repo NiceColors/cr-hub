@@ -4,11 +4,14 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { BookmarkIcon, RefreshCwIcon } from "lucide-react";
+import { BookmarkIcon, PaletteIcon, RefreshCwIcon, RepeatIcon } from "lucide-react";
 import { CommandPalette, type CommandItem } from "@/components/motion/command-palette";
-import { NAV_ITEMS } from "@/components/nav-items";
+import { ALL_NAV_ITEMS, navItemsFor } from "@/components/nav-items";
+import { useProfile } from "@/components/profile-provider";
+import { PROFILE_LABELS } from "@/lib/profile";
 import { useSavedViews } from "@/hooks/use-config";
 import { THEME_OPTIONS } from "@/components/theme-toggle";
+import { applyPalette, PALETTES } from "@/lib/palette";
 import { queryKeys } from "@/lib/query-keys";
 
 type CommandMenuContextValue = {
@@ -50,7 +53,7 @@ export function CommandMenuProvider({ children }: { children: React.ReactNode })
       if (pendingG) {
         pendingG = false;
         clearTimeout(timer);
-        const item = NAV_ITEMS.find((i) => i.shortcut === `G ${key.toUpperCase()}`);
+        const item = ALL_NAV_ITEMS.find((i) => i.shortcut === `G ${key.toUpperCase()}`);
         if (item) {
           event.preventDefault();
           router.push(item.href);
@@ -86,10 +89,12 @@ function CommandMenu() {
   const queryClient = useQueryClient();
   const { setTheme } = useTheme();
   const views = useSavedViews().data?.views;
+  const { profile, setProfile } = useProfile();
+  const otherProfile = profile === "dev" ? "lead" : "dev";
 
   const items = useMemo<CommandItem[]>(
     () => [
-      ...NAV_ITEMS.map((item) => ({
+      ...navItemsFor(profile).map((item) => ({
         id: `nav:${item.href}`,
         label: item.title,
         group: "Navegação",
@@ -113,6 +118,14 @@ function CommandMenu() {
         icon: RefreshCwIcon,
         onSelect: () => void queryClient.refetchQueries({ queryKey: queryKeys.pullRequests }),
       },
+      {
+        id: "action:profile",
+        label: `Mudar para perfil ${PROFILE_LABELS[otherProfile]}`,
+        group: "Ações",
+        keywords: ["perfil", "líder", "po", "dev", "modo"],
+        icon: RepeatIcon,
+        onSelect: () => setProfile(otherProfile),
+      },
       ...THEME_OPTIONS.map(({ value, label, icon }) => ({
         id: `theme:${value}`,
         label: `Tema ${label.toLowerCase()}`,
@@ -120,8 +133,16 @@ function CommandMenu() {
         icon,
         onSelect: () => setTheme(value),
       })),
+      ...PALETTES.map(({ id, label }) => ({
+        id: `palette:${id}`,
+        label: `Paleta ${label.toLowerCase()}`,
+        group: "Tema",
+        keywords: ["cor", "paleta", label],
+        icon: PaletteIcon,
+        onSelect: () => applyPalette(id),
+      })),
     ],
-    [router, queryClient, setTheme, views],
+    [router, queryClient, setTheme, views, profile, otherProfile, setProfile],
   );
 
   return (

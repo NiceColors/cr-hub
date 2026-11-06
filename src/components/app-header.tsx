@@ -11,14 +11,17 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/motion/breadcrumb";
+import { PaletteToggle } from "@/components/palette-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useCommandMenu } from "@/components/command-menu";
-import { NAV_ITEMS, isActivePath } from "@/components/nav-items";
+import { ALL_NAV_ITEMS, isActivePath } from "@/components/nav-items";
+import { useShortcutLabel } from "@/hooks/use-shortcut-label";
 
 export function AppHeader() {
   const pathname = usePathname();
   const { setOpen } = useCommandMenu();
-  const current = NAV_ITEMS.find((item) => isActivePath(pathname, item.href));
+  const current = ALL_NAV_ITEMS.find((item) => isActivePath(pathname, item.href));
+  const shortcut = useShortcutLabel("K");
 
   return (
     <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
@@ -32,11 +35,11 @@ export function AppHeader() {
       <Breadcrumb className="text-sm">
         <BreadcrumbList>
           <BreadcrumbItem key="workspace" className="hidden md:inline-flex">
-            <span className="px-2 font-medium text-muted-foreground">Workspace</span>
+            <span className="px-2 font-medium text-muted-foreground">CR Tracker</span>
           </BreadcrumbItem>
           <BreadcrumbItem key={current?.href ?? "root"}>
             <BreadcrumbSeparator className="hidden md:inline-flex" />
-            <BreadcrumbPage>{current?.title ?? "CR Tracker"}</BreadcrumbPage>
+            <BreadcrumbPage>{current?.title ?? "Página não encontrada"}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -50,7 +53,7 @@ export function AppHeader() {
         >
           <SearchIcon />
           Buscar comandos…
-          <kbd className="ml-auto rounded border border-border px-1.5 py-0.5 text-[10px]">⌘K</kbd>
+          <kbd className="ml-auto rounded border border-border px-1.5 py-0.5 text-[10px]">{shortcut}</kbd>
         </Button>
         <Button
           variant="ghost"
@@ -61,6 +64,7 @@ export function AppHeader() {
         >
           <SearchIcon />
         </Button>
+        <PaletteToggle />
         <ThemeToggle />
       </div>
     </header>

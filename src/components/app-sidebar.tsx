@@ -18,36 +18,62 @@ import {
 } from "@/components/motion/animated-sidebar";
 import { useCommandMenu } from "@/components/command-menu";
 import { TokenStatus } from "@/components/token-status";
-import { NAV_ITEMS, isActivePath } from "@/components/nav-items";
+import { navItemsFor, isActivePath } from "@/components/nav-items";
+import { useProfile } from "@/components/profile-provider";
+import { ProfileSwitch } from "@/components/profile-switch";
 import { useAwaitingReview } from "@/hooks/use-awaiting-review";
 import { useSavedViews } from "@/hooks/use-config";
 import { useHydrated } from "@/hooks/use-hydrated";
+import { useShortcutLabel } from "@/hooks/use-shortcut-label";
+import { PROFILE_HOME } from "@/lib/profile";
 
-function AwaitingBadge() {
+function CountBadge({ count, label, tone }: { count: number; label: string; tone: "primary" | "destructive" }) {
   const hydrated = useHydrated();
-  const { count } = useAwaitingReview();
   if (!hydrated || count === 0) return null;
   return (
     <span
-      className="rounded-full bg-primary px-1.5 font-mono text-[10px] text-primary-foreground tabular-nums"
-      aria-label={`${count} esperando sua revisão`}
+      className={
+        tone === "primary"
+          ? "rounded-full bg-primary px-1.5 font-mono text-[10px] text-primary-foreground tabular-nums"
+          : "rounded-full bg-destructive px-1.5 font-mono text-[10px] text-on-destructive tabular-nums"
+      }
+      aria-label={label}
     >
       {count}
     </span>
   );
 }
 
+function AwaitingBadge() {
+  const { count } = useAwaitingReview();
+  return <CountBadge count={count} label={`${count} esperando sua revisão`} tone="primary" />;
+}
+
+function CriticalBadge() {
+  const { criticalCount } = useAwaitingReview();
+  return (
+    <CountBadge count={criticalCount} label={`${criticalCount} PRs acima do SLA crítico`} tone="destructive" />
+  );
+}
+
+function badgeFor(href: string, profile: "dev" | "lead") {
+  if (profile === "dev" && href === "/") return <AwaitingBadge />;
+  if (profile === "lead" && href === "/lideranca") return <CriticalBadge />;
+  return undefined;
+}
+
 function NavGroup({ activeViewId }: { activeViewId: number | null }) {
   const pathname = usePathname();
+  const { profile } = useProfile();
   return (
     <AnimatedSidebarMenu>
-      {NAV_ITEMS.map((item) => (
+      {navItemsFor(profile).map((item) => (
         <AnimatedSidebarMenuItem key={item.href}>
           <AnimatedSidebarMenuButton
             href={item.href}
             isActive={isActivePath(pathname, item.href) && activeViewId === null}
             icon={<item.icon className="size-4" />}
-            badge={item.href === "/" ? <AwaitingBadge /> : undefined}
+            badge={badgeFor(item.href, profile)}
           >
             {item.title}
           </AnimatedSidebarMenuButton>
@@ -94,7 +120,7 @@ function SidebarNavigation() {
   return (
     <>
       <AnimatedSidebarGroup>
-        <AnimatedSidebarGroupLabel>Workspace</AnimatedSidebarGroupLabel>
+        <AnimatedSidebarGroupLabel>Navegação</AnimatedSidebarGroupLabel>
         <AnimatedSidebarGroupContent>
           <NavGroup activeViewId={activeViewId} />
         </AnimatedSidebarGroupContent>
@@ -106,6 +132,8 @@ function SidebarNavigation() {
 
 export function AppSidebar() {
   const { setOpen } = useCommandMenu();
+  const { profile } = useProfile();
+  const shortcut = useShortcutLabel("K");
 
   return (
     <AnimatedSidebar collapsible="icon" ariaLabel="Navegação principal">
@@ -113,7 +141,7 @@ export function AppSidebar() {
         <AnimatedSidebarMenu>
           <AnimatedSidebarMenuItem>
             <AnimatedSidebarMenuButton
-              href="/"
+              href={PROFILE_HOME[profile]}
               icon={
                 <span className="flex size-6 items-center justify-center rounded-md bg-primary font-mono text-[10px] font-semibold text-primary-foreground">
                   CR
@@ -136,7 +164,7 @@ export function AppSidebar() {
                 <AnimatedSidebarMenuButton
                   icon={<SearchIcon className="size-4" />}
                   badge={
-                    <kbd className="rounded border border-border px-1.5 py-0.5 text-[10px]">⌘K</kbd>
+                    <kbd className="rounded border border-border px-1.5 py-0.5 text-[10px]">{shortcut}</kbd>
                   }
                   onSelect={() => setOpen(true)}
                 >
@@ -150,7 +178,7 @@ export function AppSidebar() {
         <Suspense
           fallback={
             <AnimatedSidebarGroup>
-              <AnimatedSidebarGroupLabel>Workspace</AnimatedSidebarGroupLabel>
+              <AnimatedSidebarGroupLabel>Navegação</AnimatedSidebarGroupLabel>
               <AnimatedSidebarGroupContent>
                 <NavGroup activeViewId={null} />
               </AnimatedSidebarGroupContent>
@@ -162,6 +190,7 @@ export function AppSidebar() {
       </AnimatedSidebarContent>
 
       <AnimatedSidebarFooter>
+        <ProfileSwitch />
         <TokenStatus />
       </AnimatedSidebarFooter>
       <AnimatedSidebarRail aria-label="Recolher ou expandir menu" />

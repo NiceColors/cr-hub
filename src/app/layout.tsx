@@ -7,8 +7,10 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { CommandMenuProvider } from "@/components/command-menu";
 import { AppShell } from "@/components/app-shell";
 import { AttentionSync } from "@/components/attention-sync";
+import { ProfileProvider } from "@/components/profile-provider";
 import { Toaster } from "@/components/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { PALETTE_BOOT_SCRIPT } from "@/lib/palette";
+import { parseProfile, PROFILE_COOKIE } from "@/lib/profile";
 import { cn } from "@/lib/utils";
 
 const geistSans = Geist({
@@ -42,6 +44,7 @@ export default async function RootLayout({
 }) {
   const cookieStore = await cookies();
   const sidebarOpen = cookieStore.get("sidebar_state")?.value !== "false";
+  const profile = parseProfile(cookieStore.get(PROFILE_COOKIE)?.value);
 
   return (
     <html
@@ -50,6 +53,7 @@ export default async function RootLayout({
       className={cn(geistSans.variable, geistMono.variable, "h-full")}
     >
       <body className="min-h-full">
+        <script dangerouslySetInnerHTML={{ __html: PALETTE_BOOT_SCRIPT }} />
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
@@ -58,11 +62,11 @@ export default async function RootLayout({
         >
           <Providers>
             <AttentionSync />
-            <TooltipProvider delay={200}>
+            <ProfileProvider initialProfile={profile}>
               <CommandMenuProvider>
                 <AppShell defaultOpen={sidebarOpen}>{children}</AppShell>
               </CommandMenuProvider>
-            </TooltipProvider>
+            </ProfileProvider>
           </Providers>
           <Toaster />
         </ThemeProvider>

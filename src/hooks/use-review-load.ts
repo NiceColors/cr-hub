@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { reviewLoadByMember } from "@/domain/pull-request";
+import { DEFAULT_POLL_INTERVAL_SECONDS } from "@/lib/api/config";
 import { useSettings } from "@/hooks/use-config";
 import { usePullRequests } from "@/hooks/use-pull-requests";
 
@@ -10,7 +11,7 @@ export function useReviewLoad() {
   const settings = useSettings();
   const { query } = usePullRequests({
     teamId: null,
-    refreshIntervalSec: settings.data?.pollIntervalSeconds ?? 30,
+    refreshIntervalSec: settings.data?.pollIntervalSeconds ?? DEFAULT_POLL_INTERVAL_SECONDS,
   });
   const data = query.data;
   return useMemo(

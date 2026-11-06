@@ -14,6 +14,11 @@ export type BuildState = "successful" | "failed" | "in_progress" | "none";
 
 export type SizeBucket = "P" | "M" | "G" | "GG";
 
+/** Complexidade atribuída à mão; diferente do tamanho, que vem das linhas alteradas. */
+export const COMPLEXITIES = ["low", "medium", "high"] as const;
+
+export type Complexity = (typeof COMPLEXITIES)[number];
+
 export interface Sla {
   warningHours: number;
   criticalHours: number;
@@ -61,12 +66,15 @@ export interface PullRequest {
   jiraKey: string | null;
   authorMonitored: boolean;
   snooze: Snooze | null;
+  complexity: Complexity | null;
 }
 
 export interface RepoFetchError {
   repositorySlug: string;
   status?: number;
   message: string;
+  /** Escopos que o Bitbucket exigiu e o token não tem, quando o 403 é de privilégio. */
+  requiredScopes?: string[];
 }
 
 export interface PullRequestListResult {
@@ -238,7 +246,7 @@ export function computeSnoozeUntilMs(kind: SnoozeKind, nowMs: number): number | 
 
 type ReviewerView = Pick<PullRequest, "author" | "reviewers">;
 
-function isPendingFor(pr: ReviewerView, uuid: string) {
+export function isPendingFor(pr: ReviewerView, uuid: string) {
   if (pr.author.uuid === uuid) return false;
   const reviewer = pr.reviewers.find((r) => r.uuid === uuid);
   return Boolean(reviewer && !reviewer.approved && !reviewer.changesRequested);

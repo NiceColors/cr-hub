@@ -1,4 +1,12 @@
+import type { PullRequest, RepoFetchError } from "@/domain/pull-request";
+import { clearBitbucketRateLimit } from "@/lib/bitbucket/rateLimit";
 import { createTtlCache } from "@/lib/cache";
+
+export {
+  clearBitbucketRateLimit,
+  getRateLimitRemainingSeconds,
+  setRateLimitUntilSecondsFromNow,
+} from "@/lib/bitbucket/rateLimit";
 
 export type PullRequestsCacheValue<T> = {
   cachedAtMs: number;
@@ -15,7 +23,38 @@ declare global {
   // eslint-disable-next-line no-var
   var __crTrackerInFlightByKey: Map<string, Promise<unknown>> | undefined;
   // eslint-disable-next-line no-var
-  var __crTrackerRateLimitUntilMs: number | undefined;
+  var __crTrackerRepoSnapshots: Map<string, RepoSnapshot> | undefined;
+}
+
+const REPO_SNAPSHOT_TTL_MS = 20 * 60 * 1000;
+
+export type RepoSnapshot = {
+  pullRequests: PullRequest[];
+  fetchedAtMs: number;
+  error?: RepoFetchError;
+};
+
+const repoSnapshots =
+  globalThis.__crTrackerRepoSnapshots ?? new Map<string, RepoSnapshot>();
+globalThis.__crTrackerRepoSnapshots = repoSnapshots;
+
+function snapshotKey(scope: string, repoUuid: string) {
+  return `${scope}\0${repoUuid}`;
+}
+
+export function getRepoSnapshot(scope: string, repoUuid: string, nowMs = Date.now()) {
+  const key = snapshotKey(scope, repoUuid);
+  const entry = repoSnapshots.get(key);
+  if (!entry) return undefined;
+  if (nowMs - entry.fetchedAtMs > REPO_SNAPSHOT_TTL_MS) {
+    repoSnapshots.delete(key);
+    return undefined;
+  }
+  return entry;
+}
+
+export function setRepoSnapshot(scope: string, repoUuid: string, snapshot: RepoSnapshot) {
+  repoSnapshots.set(snapshotKey(scope, repoUuid), snapshot);
 }
 
 export const pullRequestsCache =
@@ -35,17 +74,8 @@ export function clearPullRequestsCache() {
   pullRequestsCache.clear();
   inFlightByKey.clear();
   lastForceAtByKey.clear();
-  globalThis.__crTrackerRateLimitUntilMs = undefined;
-}
-
-export function getRateLimitRemainingSeconds(nowMs = Date.now()) {
-  const until = globalThis.__crTrackerRateLimitUntilMs;
-  if (!until) return 0;
-  return Math.max(0, Math.ceil((until - nowMs) / 1000));
-}
-
-export function setRateLimitUntilSecondsFromNow(seconds: number, nowMs = Date.now()) {
-  globalThis.__crTrackerRateLimitUntilMs = nowMs + seconds * 1000;
+  repoSnapshots.clear();
+  clearBitbucketRateLimit();
 }
 
 export function singleFlight<T>(key: string, fn: () => Promise<T>): Promise<T> {

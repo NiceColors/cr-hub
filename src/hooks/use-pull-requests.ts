@@ -6,9 +6,7 @@ import { toast } from "@/lib/toast";
 import { ApiError, getJson, sendJson } from "@/lib/api/http";
 import { queryKeys } from "@/lib/query-keys";
 import { failureMessage } from "@/hooks/use-config";
-import { prKey, type SnoozeKind } from "@/domain/pull-request";
-
-const BACKGROUND_MIN_INTERVAL_SEC = 120;
+import { COMPLEXITIES, prKey, type Complexity, type SnoozeKind } from "@/domain/pull-request";
 
 const userRefSchema = z.object({
   uuid: z.string(),
@@ -54,6 +52,7 @@ const pullRequestItemSchema = z.object({
       createdAt: z.string(),
     })
     .nullable(),
+  complexity: z.enum(COMPLEXITIES).nullable().default(null),
 });
 
 const responseSchema = z.object({
@@ -63,6 +62,7 @@ const responseSchema = z.object({
       repositorySlug: z.string(),
       status: z.number().optional(),
       message: z.string(),
+      requiredScopes: z.array(z.string()).optional(),
     }),
   ),
   fetchedAt: z.string(),
@@ -85,30 +85,27 @@ function fetchPullRequests(teamId: number | null, force: boolean) {
 export function usePullRequests(opts: {
   teamId: number | null;
   refreshIntervalSec: number;
-  /** Continua consultando com a aba oculta (em ritmo mais lento), para badge e notificações. */
-  background?: boolean;
 }) {
   const queryClient = useQueryClient();
   const key = queryKeys.pullRequestsFor(opts.teamId);
+  const intervalMs = opts.refreshIntervalSec * 1000;
 
   const query = useQuery({
     queryKey: key,
     queryFn: () => fetchPullRequests(opts.teamId, false),
-    refetchIntervalInBackground: opts.background ?? false,
-    refetchInterval: () => {
-      if (typeof document === "undefined") return false;
-      if (document.visibilityState !== "visible") {
-        if (!opts.background) return false;
-        return Math.max(opts.refreshIntervalSec, BACKGROUND_MIN_INTERVAL_SEC) * 1000;
-      }
-      return opts.refreshIntervalSec * 1000;
-    },
+    staleTime: intervalMs,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: false,
+    refetchInterval: intervalMs,
   });
 
   const refresh = useMutation({
     mutationKey: queryKeys.pullRequests,
     mutationFn: () => fetchPullRequests(opts.teamId, true),
-    onSuccess: (data) => queryClient.setQueryData(key, data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(key, data);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.status });
+    },
     onError: () => toast.error(failureMessage("atualizar a fila")),
   });
 
@@ -235,6 +232,34 @@ export function useSnooze() {
       invalidate();
     },
     onError: () => toast.error(failureMessage("remover o silêncio")),
+  });
+
+  return { set, clear };
+}
+
+export const COMPLEXITY_LABELS: Record<Complexity, string> = {
+  low: "Baixa",
+  medium: "Média",
+  high: "Alta",
+};
+
+export function useComplexity() {
+  const qc = useQueryClient();
+  const invalidate = () => void qc.invalidateQueries({ queryKey: queryKeys.pullRequests });
+  const url = (pr: PullRequestItem) =>
+    `/api/complexities/${encodeURIComponent(prKey(pr.repository.uuid, pr.id))}`;
+
+  const set = useMutation({
+    mutationFn: (input: { pr: PullRequestItem; complexity: Complexity }) =>
+      sendJson(url(input.pr), "PUT", { complexity: input.complexity }),
+    onSuccess: invalidate,
+    onError: () => toast.error(failureMessage("definir a complexidade")),
+  });
+
+  const clear = useMutation({
+    mutationFn: (pr: PullRequestItem) => sendJson(url(pr), "DELETE"),
+    onSuccess: invalidate,
+    onError: () => toast.error(failureMessage("remover a complexidade")),
   });
 
   return { set, clear };

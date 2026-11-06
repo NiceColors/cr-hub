@@ -15,6 +15,8 @@ import {
   type BuildState,
   type SizeBucket,
 } from "@/domain/pull-request";
+import { requestsCounter } from "@/lib/requestsCounter";
+import { BITBUCKET_HOURLY_BUDGET } from "@/lib/bitbucket/rateLimit";
 import { bitbucketClient } from "@/services/bitbucketClient";
 import { getRepository, getSettings } from "@/services/configService";
 import { getMe } from "@/services/meService";
@@ -61,6 +63,11 @@ declare global {
 const buildCache = globalThis.__crTrackerBuildCache ?? createTtlCache<BuildState>();
 globalThis.__crTrackerBuildCache = buildCache;
 
+/** Build já consultado para esta versão do PR, sem ir ao Bitbucket. */
+export function peekBuildState(key: string, updatedOn: string): BuildState | null {
+  return buildCache.get(`${key}@${updatedOn}`) ?? null;
+}
+
 function toSize(row: { linesAdded: number; linesRemoved: number; filesChanged: number }) {
   return { ...row, bucket: sizeBucket(row.linesAdded + row.linesRemoved) };
 }
@@ -88,7 +95,14 @@ export async function getInsights(items: InsightRequest[]) {
     return slugs.get(repoUuid)!;
   };
 
-  await mapLimit(items, 4, async (item) => {
+  const MAX_INSIGHT_FETCHES = 4;
+  let fetches = 0;
+  const canFetch = () =>
+    fetches < MAX_INSIGHT_FETCHES &&
+    getRateLimitRemainingSeconds() === 0 &&
+    requestsCounter.countLastHour() < BITBUCKET_HOURLY_BUDGET;
+
+  await mapLimit(items, 2, async (item) => {
     const key = prKey(item.repoUuid, item.id);
     const insight: PullRequestInsight = {};
     out[key] = insight;
@@ -101,9 +115,11 @@ export async function getInsights(items: InsightRequest[]) {
     if (cachedBuild) insight.build = cachedBuild;
 
     const slug = slugOf(item.repoUuid);
-    if (!slug || getRateLimitRemainingSeconds() > 0) return;
+    if (!slug) return;
 
     if (!row || row.updatedOn !== item.updatedOn) {
+      if (!canFetch()) return;
+      fetches += 1;
       try {
         const totals = await bitbucketClient.getDiffstatTotals(slug, item.id);
         const values = {
@@ -122,7 +138,9 @@ export async function getInsights(items: InsightRequest[]) {
       }
     }
 
-    if (item.approved && !cachedBuild && getRateLimitRemainingSeconds() === 0) {
+    if (item.approved && !cachedBuild) {
+      if (!canFetch()) return;
+      fetches += 1;
       try {
         const statuses = await bitbucketClient.listCommitStatuses(slug, item.id);
         const build = aggregateBuildState(statuses.map((s) => s.state));

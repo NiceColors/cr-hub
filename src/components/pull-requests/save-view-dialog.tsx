@@ -3,6 +3,8 @@
 import { useId, useState } from "react";
 import { BookmarkPlusIcon } from "lucide-react";
 import { Button } from "@/components/motion/button/base";
+import { StatefulButton } from "@/components/motion/button/stateful";
+import { useMutationButtonState } from "@/hooks/use-mutation-button-state";
 import { CenterMorphModal, CenterMorphModalContent } from "@/components/motion/center-morph-modal";
 import { Input } from "@/components/motion/input";
 import { useCreateSavedView } from "@/hooks/use-config";
@@ -18,6 +20,7 @@ function SaveViewForm({
   onCancel: () => void;
 }) {
   const create = useCreateSavedView();
+  const saveState = useMutationButtonState(create);
   const descriptionId = useId();
   const [name, setName] = useState("");
 
@@ -48,10 +51,17 @@ function SaveViewForm({
         <Button variant="outline" onClick={onCancel}>
           Cancelar
         </Button>
-        <Button type="submit" disabled={!name.trim() || create.isPending}>
-          <BookmarkPlusIcon />
+        <StatefulButton
+          type="submit"
+          state={saveState}
+          disabled={!name.trim()}
+          icon={<BookmarkPlusIcon />}
+          loadingText="Salvando"
+          successText="Salva"
+          errorText="Falhou, tente de novo"
+        >
           Salvar
-        </Button>
+        </StatefulButton>
       </div>
     </form>
   );

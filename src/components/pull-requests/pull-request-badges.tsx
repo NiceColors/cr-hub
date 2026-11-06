@@ -6,9 +6,14 @@ import {
   ListTodoIcon,
   LoaderCircleIcon,
   MessageSquareIcon,
+  SignalHighIcon,
+  SignalLowIcon,
+  SignalMediumIcon,
+  UserRoundPlusIcon,
 } from "lucide-react";
-import type { BuildState, SizeBucket, TargetKind } from "@/domain/pull-request";
-import type { PullRequestItem } from "@/hooks/use-pull-requests";
+import { shortPersonName } from "@/domain/person-name";
+import type { BuildState, Complexity, SizeBucket, TargetKind } from "@/domain/pull-request";
+import { COMPLEXITY_LABELS, type PullRequestItem } from "@/hooks/use-pull-requests";
 import { cn } from "@/lib/utils";
 
 const TARGET_LABEL: Record<TargetKind, string> = {
@@ -19,7 +24,7 @@ const TARGET_LABEL: Record<TargetKind, string> = {
 
 const TARGET_CLASS: Record<TargetKind, string> = {
   hotfix: "border-destructive/40 bg-destructive/10 text-destructive",
-  production: "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  production: "border-warning/40 bg-warning/10 text-warning-foreground",
   release: "border-primary/40 bg-primary/10 text-primary",
 };
 
@@ -37,7 +42,7 @@ export function TargetBadge({ kind, branch }: { kind: TargetKind; branch: string
 const SIZE_CLASS: Record<SizeBucket, string> = {
   P: "border-border text-muted-foreground",
   M: "border-border text-foreground",
-  G: "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  G: "border-warning/40 bg-warning/10 text-warning-foreground",
   GG: "border-destructive/40 bg-destructive/10 text-destructive",
 };
 
@@ -63,7 +68,7 @@ export function SizeBadge({
 }
 
 const BUILD: Record<Exclude<BuildState, "none">, { label: string; className: string; Icon: typeof CircleCheckIcon }> = {
-  successful: { label: "Build ok", className: "text-emerald-600 dark:text-emerald-400", Icon: CircleCheckIcon },
+  successful: { label: "Build passou", className: "text-success-foreground", Icon: CircleCheckIcon },
   failed: { label: "Build falhou", className: "text-destructive", Icon: CircleXIcon },
   in_progress: { label: "Build em andamento", className: "text-primary", Icon: LoaderCircleIcon },
 };
@@ -105,7 +110,7 @@ export function ActivityCounts({ pr }: { pr: PullRequestItem }) {
         <span
           className={cn(
             "inline-flex items-center gap-0.5 font-mono text-xs tabular-nums",
-            tasksBlockMerge ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
+            tasksBlockMerge ? "text-warning-foreground" : "text-muted-foreground",
           )}
           title={
             tasksBlockMerge
@@ -122,6 +127,30 @@ export function ActivityCounts({ pr }: { pr: PullRequestItem }) {
   );
 }
 
+export const COMPLEXITY_ICON: Record<Complexity, typeof SignalLowIcon> = {
+  low: SignalLowIcon,
+  medium: SignalMediumIcon,
+  high: SignalHighIcon,
+};
+
+const COMPLEXITY_CLASS: Record<Complexity, string> = {
+  low: "border-border text-muted-foreground",
+  medium: "border-primary/40 bg-primary/10 text-primary",
+  high: "border-warning/40 bg-warning/10 text-warning-foreground",
+};
+
+export function ComplexityBadge({ complexity }: { complexity: Complexity }) {
+  const Icon = COMPLEXITY_ICON[complexity];
+  const label = COMPLEXITY_LABELS[complexity];
+  return (
+    <span className={cn(chip, COMPLEXITY_CLASS[complexity])} title={`Complexidade ${label.toLowerCase()}`}>
+      <Icon aria-hidden className="size-3" />
+      <span className="font-sans">{label}</span>
+      <span className="sr-only"> complexidade</span>
+    </span>
+  );
+}
+
 export function SnoozeBadge({ snooze }: { snooze: NonNullable<PullRequestItem["snooze"]> }) {
   return (
     <span
@@ -130,6 +159,24 @@ export function SnoozeBadge({ snooze }: { snooze: NonNullable<PullRequestItem["s
     >
       <BellOffIcon aria-hidden className="size-3" />
       <span className="truncate font-sans">{snooze.reason}</span>
+    </span>
+  );
+}
+
+export function SuggestedReviewerBadge({
+  name,
+  teamName,
+}: {
+  name: string;
+  teamName: string;
+}) {
+  return (
+    <span
+      className={cn(chip, "max-w-44 border-primary/40 bg-primary/10 text-primary")}
+      title={`Sem revisor. Plantão de hoje em ${teamName}: ${name}`}
+    >
+      <UserRoundPlusIcon aria-hidden className="size-3" />
+      <span className="truncate font-sans">Sugerido: {shortPersonName(name)}</span>
     </span>
   );
 }

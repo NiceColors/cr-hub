@@ -17,10 +17,14 @@ export const FILTER_OPERATOR_LABELS_PT: Record<string, string> = {
 };
 
 export const NO_TARGET = "other";
+export const UNLINKED_PROJECT = "unlinked";
 
 type FieldId = "repository" | "author" | "target" | "size" | "state";
 
-type MatchContext = { insights: Record<string, PullRequestInsight> };
+type MatchContext = {
+  insights: Record<string, PullRequestInsight>;
+  projectIdsByKey?: ReadonlyMap<string, readonly string[]>;
+};
 
 const fieldValue: Record<FieldId, (pr: PullRequestItem, ctx: MatchContext) => string | null> = {
   repository: (pr) => pr.repository.uuid,
@@ -43,9 +47,20 @@ function matchesNode(pr: PullRequestItem, node: FilterNode, ctx: MatchContext): 
       : node.rules.every((child) => matchesNode(pr, child, ctx));
   }
 
-  const getValue = fieldValue[node.path[0] as FieldId];
   const values = toValues(node.value);
-  if (!getValue || values.length === 0) return true;
+  if (values.length === 0) return true;
+  if (node.path[0] === "project") {
+    const ids = ctx.projectIdsByKey?.get(prKey(pr.repository.uuid, pr.id)) ?? [];
+    const included = values.some((value) =>
+      value === UNLINKED_PROJECT ? ids.length === 0 : ids.includes(value),
+    );
+    const result =
+      node.operator === "is_not" || node.operator === "is_none_of" ? !included : included;
+    return node.negated ? !result : result;
+  }
+
+  const getValue = fieldValue[node.path[0] as FieldId];
+  if (!getValue) return true;
 
   const value = getValue(pr, ctx);
   const included = value !== null && values.includes(value);

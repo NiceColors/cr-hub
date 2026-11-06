@@ -34,6 +34,7 @@ describe("pullRequestsCache helpers", () => {
   });
 
   test("rate limit restante zera após expirar", () => {
+    clearPullRequestsCache();
     const now = 1000;
     setRateLimitUntilSecondsFromNow(5, now);
     expect(getRateLimitRemainingSeconds(now)).toBe(5);

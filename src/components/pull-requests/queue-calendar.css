@@ -1,0 +1,473 @@
+/* Calendário da Fila de CRs. CSS global com prefixo `qcal-`: a regra do
+   Turbopack em next.config.ts processa todo *.css como CSS comum, sem módulos.
+
+@motion
+[Seleção do dia] pílula de seleção
+--pill-dur: Duração
+--pill-ease: Easing
+[Troca de conteúdo] mês, grade e lista de PRs
+--text-swap-dur: Duração
+--text-swap-translate-y: Distância
+--text-swap-blur: Desfoque
+more --text-swap-ease: Easing
+[Altura] grade e lista
+--resize-dur: Duração
+--resize-ease: Easing
+more [Contador] total de PRs
+--digit-dur: Duração
+--digit-distance: Distância
+--digit-stagger: Atraso
+--digit-blur: Desfoque
+--digit-ease: Easing
+--digit-dir-x: Direção X
+--digit-dir-y: Direção Y
+more [Troca suave] nome do mês
+--text-soft-dur: Duração
+--text-soft-blur: Desfoque
+--text-soft-ease: Easing
+--text-soft-resize-dur: Duração da largura
+--text-soft-resize-ease: Easing da largura
+more [Press] botões
+--press-scale: Escala
+--press-dur: Duração
+--ease-smooth-out: Easing
+*/
+.qcal {
+  /* Palco do componente mapeado para os tokens do app (globals.css). */
+  --stage-bg: var(--background);
+  --stage-fg: var(--card-foreground);
+  --stage-muted: var(--muted-foreground);
+  --stage-border: var(--border);
+  --stage-surface: var(--card);
+  --stage-accent: var(--primary);
+  --stage-on-accent: var(--primary-foreground);
+
+  --press-scale: 0.99;
+  --press-dur: 150ms;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --pill-dur: 250ms;
+  --pill-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --text-swap-dur: 150ms;
+  --text-swap-translate-y: 4px;
+  --text-swap-blur: 2px;
+  --text-swap-ease: ease-in-out;
+  --text-soft-dur: 200ms;
+  --text-soft-blur: 2px;
+  --text-soft-ease: ease-in-out;
+  --text-soft-resize-dur: 240ms;
+  --text-soft-resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --resize-dur: 300ms;
+  --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --digit-dur: 500ms;
+  --digit-distance: 8px;
+  --digit-stagger: 70ms;
+  --digit-blur: 2px;
+  --digit-ease: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --digit-dir-x: 0;
+  --digit-dir-y: 1;
+  --chip: color-mix(in oklab, var(--foreground) 4%, transparent);
+  --row-hover: color-mix(in oklab, var(--foreground) 4%, transparent);
+  --divider: color-mix(in srgb, var(--stage-border) 49%, transparent);
+
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--stage-border);
+  border-radius: var(--radius-2xl);
+  background: var(--stage-surface);
+  color: var(--stage-fg);
+  font-size: 13px;
+  line-height: 20px;
+}
+.dark .qcal {
+  --chip: color-mix(in oklab, var(--foreground) 7%, transparent);
+  --row-hover: color-mix(in oklab, var(--foreground) 6.5%, transparent);
+}
+.qcal button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.qcal-calendar,
+.qcal-list-col {
+  min-width: 0;
+}
+@media (min-width: 768px) {
+  .qcal {
+    flex-direction: row;
+  }
+  .qcal-calendar {
+    flex: none;
+    width: 300px;
+  }
+  .qcal-list-col {
+    flex: 1;
+  }
+}
+
+.qcal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 12px 4px;
+}
+.qcal-head-text {
+  flex: 1;
+  min-width: 0;
+}
+.qcal-month {
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 500;
+}
+.qcal-sub {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--stage-muted);
+  font-variant-numeric: tabular-nums;
+}
+.qcal-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.qcal-icon-btn,
+.qcal-today-btn {
+  --press-scale: 0.95;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--stage-fg);
+  transition:
+    transform var(--press-dur) var(--ease-smooth-out),
+    background-color var(--press-dur) var(--ease-smooth-out);
+}
+.qcal-icon-btn {
+  width: 32px;
+  border-radius: 50%;
+}
+.qcal-today-btn {
+  padding: 0 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+@media (hover: hover) and (pointer: fine) {
+  .qcal-icon-btn:hover,
+  .qcal-today-btn:hover {
+    background: var(--chip);
+  }
+}
+.qcal-icon-btn:is(:active, .is-pressed),
+.qcal-today-btn:is(:active, .is-pressed) {
+  transform: scale(var(--press-scale));
+}
+
+.qcal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--stage-muted);
+  padding-bottom: 4px;
+}
+.qcal-wrap {
+  overflow: hidden;
+}
+.qcal-days-inner {
+  position: relative;
+}
+.qcal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  position: relative;
+  z-index: 1;
+}
+.qcal-day {
+  height: 32px;
+  border-radius: 8px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--stage-fg);
+  transition:
+    transform var(--press-dur) var(--ease-smooth-out),
+    background-color var(--press-dur) var(--ease-smooth-out),
+    color var(--pill-dur) var(--pill-ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  .qcal-day:hover {
+    background: var(--row-hover);
+  }
+}
+.qcal-day[aria-pressed="true"] {
+  color: var(--stage-on-accent);
+  background: none;
+}
+.qcal-day:is(:active, .is-pressed) {
+  transform: scale(var(--press-scale));
+}
+/* O wrap corta o que passa da grade: o anel fica por dentro da célula. */
+.qcal-day:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.qcal-day[aria-pressed="true"]:focus-visible {
+  outline-color: var(--stage-on-accent);
+  outline-offset: -4px;
+}
+.qcal-day.is-today .qcal-num {
+  font-weight: 600;
+}
+.qcal-day.is-today:not([aria-pressed="true"]) .qcal-num {
+  color: var(--primary);
+}
+.qcal-day.is-empty {
+  pointer-events: none;
+}
+.qcal-marks {
+  display: flex;
+  gap: 2px;
+  height: 4px;
+}
+.qcal-marks i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  display: block;
+}
+.qcal-day:not([aria-pressed="true"]) .qcal-marks i {
+  background: var(--stage-muted);
+}
+.qcal-day:not([aria-pressed="true"]) .qcal-marks i[data-band="warning"] {
+  background: var(--warning);
+}
+.qcal-day:not([aria-pressed="true"]) .qcal-marks i[data-band="critical"] {
+  background: var(--destructive);
+}
+.qcal-sel-pill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  width: 0;
+  height: 0;
+  border-radius: 8px;
+  background: var(--stage-accent);
+  --ink: var(--stage-on-accent);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    inset 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent),
+    inset 0 -1px 0 0 color-mix(in srgb, var(--ink) 10%, transparent);
+  transition: transform var(--pill-dur) var(--pill-ease);
+  pointer-events: none;
+}
+
+.qcal-divider {
+  flex: none;
+  height: 1px;
+  margin: 12px 0;
+  background: linear-gradient(90deg, transparent, var(--divider) 20%, var(--divider) 80%, transparent);
+}
+@media (min-width: 768px) {
+  .qcal-divider {
+    width: 1px;
+    height: auto;
+    margin: 0 16px;
+    background: linear-gradient(180deg, transparent, var(--divider) 20%, var(--divider) 80%, transparent);
+  }
+}
+
+.qcal-list-head {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--stage-muted);
+  padding: 0 4px 4px;
+}
+.qcal-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  text-align: left;
+  transition:
+    transform var(--press-dur) var(--ease-smooth-out),
+    background-color var(--press-dur) var(--ease-smooth-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .qcal-row:hover {
+    background: var(--row-hover);
+  }
+}
+.qcal-row:is(:active, .is-pressed) {
+  transform: scale(var(--press-scale));
+}
+.qcal-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.qcal-row.is-snoozed {
+  opacity: 0.6;
+}
+.qcal-row-text {
+  flex: 1;
+  min-width: 0;
+}
+.qcal-row-title {
+  display: block;
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qcal-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--stage-muted);
+  white-space: nowrap;
+}
+.qcal-meta-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qcal-row-side {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+.qcal-group + .qcal-group {
+  margin-top: 8px;
+}
+.qcal-group-head {
+  padding: 4px 4px 2px;
+}
+.qcal-empty-text {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--stage-muted);
+  padding: 6px 4px;
+}
+
+.qcal-text-swap {
+  transform: translateY(0);
+  filter: blur(0);
+  opacity: 1;
+  transition:
+    transform var(--text-swap-dur) var(--text-swap-ease),
+    filter var(--text-swap-dur) var(--text-swap-ease),
+    opacity var(--text-swap-dur) var(--text-swap-ease);
+}
+.qcal-text-swap.is-exit {
+  transform: translateY(calc(var(--text-swap-translate-y) * -1));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+}
+.qcal-text-swap.is-enter-start {
+  transform: translateY(var(--text-swap-translate-y));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+  transition: none;
+}
+.qcal-text-soft {
+  display: inline-grid;
+  justify-items: var(--text-soft-align, start);
+  transition: width var(--text-soft-resize-dur) var(--text-soft-resize-ease);
+}
+.qcal-text-soft > span {
+  grid-area: 1 / 1;
+  white-space: pre;
+  transition:
+    filter var(--text-soft-dur) var(--text-soft-ease),
+    opacity var(--text-soft-dur) var(--text-soft-ease);
+}
+.qcal-text-soft > .qcal-text-soft-new {
+  opacity: 0;
+  filter: blur(var(--text-soft-blur));
+}
+.qcal-text-soft.is-swapping > .qcal-text-soft-old {
+  opacity: 0;
+  filter: blur(var(--text-soft-blur));
+}
+.qcal-text-soft.is-swapping > .qcal-text-soft-new {
+  opacity: 1;
+  filter: blur(0);
+}
+.qcal-resize {
+  transition: height var(--resize-dur) var(--resize-ease);
+}
+@keyframes qcal-digit-pop-in {
+  0% {
+    transform: translate(
+      calc(var(--digit-distance) * var(--digit-dir-x)),
+      calc(var(--digit-distance) * var(--digit-dir-y))
+    );
+    opacity: 0;
+    filter: blur(var(--digit-blur));
+  }
+  100% {
+    transform: translate(0, 0);
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+.qcal-digit-group {
+  display: inline-flex;
+  align-items: baseline;
+}
+.qcal-digit-group > span {
+  display: inline-block;
+}
+.qcal-digit-group.is-animating > span {
+  animation: qcal-digit-pop-in var(--digit-dur) var(--digit-ease) both;
+}
+.qcal-digit-group.is-animating > span[data-stagger="1"] {
+  animation-delay: var(--digit-stagger);
+}
+.qcal-digit-group.is-animating > span[data-stagger="2"] {
+  animation-delay: calc(var(--digit-stagger) * 2);
+}
+.qcal-digit-group.is-animating > span[data-same] {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qcal-text-swap,
+  .qcal-resize,
+  .qcal-sel-pill,
+  .qcal-text-soft,
+  .qcal-text-soft > span {
+    transition: none !important;
+  }
+  .qcal-digit-group > span {
+    animation: none !important;
+  }
+  .qcal-icon-btn:is(:active, .is-pressed),
+  .qcal-today-btn:is(:active, .is-pressed),
+  .qcal-day:is(:active, .is-pressed),
+  .qcal-row:is(:active, .is-pressed) {
+    transform: none;
+  }
+}

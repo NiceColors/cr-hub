@@ -8,36 +8,56 @@ import {
   CheckIcon,
   CircleDotIcon,
   FileCodeIcon,
+  PinIcon,
+  PinOffIcon,
   UserPlusIcon,
   XIcon,
 } from "lucide-react";
-import { Button } from "@/components/motion/button/base";
+import { Button, ButtonLink } from "@/components/motion/button/base";
 import { AnimatedBadge } from "@/components/motion/animated-badge";
+import { ProjectKindBadge } from "@/components/projects/project-kind";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RelativeTime } from "@/components/relative-time";
-import { SideSheet } from "@/components/side-sheet";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleIndicator,
+  CollapsibleTrigger,
+} from "@/components/motion/collapsible";
+import { Drawer } from "@/components/motion/drawer";
 import { ApprovalsMeter, ReviewStateBadge } from "@/components/pull-requests/review-state";
 import {
   ActivityCounts,
   BuildIcon,
+  COMPLEXITY_ICON,
   JiraLink,
   SizeBadge,
   SnoozeBadge,
   TargetBadge,
 } from "@/components/pull-requests/pull-request-badges";
-import { ageBadgeLabel, initials } from "@/components/pull-requests/pull-request-columns";
+import { ageBadgeLabel } from "@/components/pull-requests/pull-request-columns";
+import { initials } from "@/domain/person-name";
 import {
   canAddMeAsReviewer,
+  useFocusState,
   usePullRequestActions,
 } from "@/components/pull-requests/pull-request-actions";
+import { COMPLEXITIES, prKey } from "@/domain/pull-request";
+import { bancadaPath } from "@/components/revisao/bancada-path";
+import { useFocusActions } from "@/hooks/use-focus";
+import { useOnCall } from "@/hooks/use-on-call";
+import { projectsForPullRequest, useProjects } from "@/hooks/use-projects";
 import {
+  COMPLEXITY_LABELS,
   useAddMeAsReviewer,
+  useComplexity,
   usePullRequestDetail,
   useSnooze,
   type PullRequestInsight,
   type PullRequestItem,
 } from "@/hooks/use-pull-requests";
+import { cn } from "@/lib/utils";
 
 function Person({ name, avatarUrl }: { name: string; avatarUrl?: string | null }) {
   return (
@@ -60,6 +80,55 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** Seção longa que pode ser recolhida para encurtar o painel. */
+function CollapsibleSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Collapsible defaultOpen>
+      <h3>
+        <CollapsibleTrigger className="-mx-2 min-h-8 rounded-lg px-2 py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground">
+          {title}
+          <CollapsibleIndicator />
+        </CollapsibleTrigger>
+      </h3>
+      <CollapsibleContent contentClassName="pt-2">{children}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+/** Escolher o nível já marcado limpa a complexidade. */
+function ComplexityPicker({ pr }: { pr: PullRequestItem }) {
+  const { set, clear } = useComplexity();
+  const pending = set.isPending || clear.isPending;
+  return (
+    <div role="radiogroup" aria-label="Complexidade" className="inline-flex gap-1">
+      {COMPLEXITIES.map((c) => {
+        const Icon = COMPLEXITY_ICON[c];
+        const selected = pr.complexity === c;
+        return (
+          <button
+            key={c}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            disabled={pending}
+            onClick={() => (selected ? clear.mutate(pr) : set.mutate({ pr, complexity: c }))}
+            className={cn(
+              "inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-xs transition-colors",
+              "focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50",
+              selected
+                ? "border-primary bg-primary/10 text-foreground"
+                : "border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+            )}
+          >
+            <Icon aria-hidden className="size-3.5" />
+            {COMPLEXITY_LABELS[c]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function DrawerBody({
   pr,
   insight,
@@ -69,10 +138,15 @@ function DrawerBody({
   insight: PullRequestInsight | undefined;
   jiraBaseUrl: string | null;
 }) {
-  const { meUuid, openSnooze } = usePullRequestActions();
+  const { meUuid, openSnooze, openAssociate } = usePullRequestActions();
+  const { projects } = useProjects();
+  const linkedProjects = projectsForPullRequest(projects, prKey(pr.repository.uuid, pr.id));
   const detail = usePullRequestDetail(pr);
   const snooze = useSnooze();
   const addMe = useAddMeAsReviewer();
+  const focus = useFocusState(pr);
+  const focusActions = useFocusActions();
+  const suggestion = useOnCall().suggestFor(pr);
   const snoozed = pr.snooze !== null;
 
   return (
@@ -124,6 +198,10 @@ function DrawerBody({
           <dd>
             <SizeBadge size={insight?.size} />
           </dd>
+          <dt className="text-muted-foreground">Complexidade</dt>
+          <dd>
+            <ComplexityPicker pr={pr} />
+          </dd>
           <dt className="text-muted-foreground">Aprovações</dt>
           <dd>
             <ApprovalsMeter approvals={pr.approvals} required={pr.minApprovals} />
@@ -140,14 +218,23 @@ function DrawerBody({
 
         <Section title={`Revisores (${pr.reviewers.length})`}>
           {pr.reviewers.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nenhum revisor atribuído.</p>
+            <p className="text-sm text-muted-foreground">
+              Nenhum revisor atribuído.
+              {suggestion ? (
+                <>
+                  {" "}
+                  Plantão de hoje em {suggestion.teamName}:{" "}
+                  <span className="font-medium text-primary">{suggestion.person.displayName}</span>.
+                </>
+              ) : null}
+            </p>
           ) : (
             <ul className="flex flex-col gap-2">
               {pr.reviewers.map((r) => (
                 <li key={r.uuid} className="flex items-center justify-between gap-3 text-sm">
                   <Person name={r.displayName} avatarUrl={r.avatarUrl} />
                   {r.approved ? (
-                    <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                    <span className="inline-flex items-center gap-1 text-xs text-success-foreground">
                       <CheckIcon aria-hidden className="size-3.5" /> Aprovou
                     </span>
                   ) : r.changesRequested ? (
@@ -165,7 +252,7 @@ function DrawerBody({
           )}
         </Section>
 
-        <Section title="Descrição">
+        <CollapsibleSection title="Descrição">
           {detail.isLoading ? (
             <div className="flex flex-col gap-2">
               <Skeleton className="h-4 w-full" />
@@ -181,11 +268,45 @@ function DrawerBody({
           ) : (
             <p className="text-sm text-muted-foreground">Sem descrição.</p>
           )}
+        </CollapsibleSection>
+
+        <Section title="Vínculos">
+          {linkedProjects.length === 0 ? (
+            <p className="text-sm text-pretty text-muted-foreground">
+              Este CR ainda não está em um projeto, feature ou fix.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {linkedProjects.map((project) => (
+                <li
+                  key={project.id}
+                  className="flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm"
+                >
+                  <ProjectKindBadge kind={project.kind} />
+                  <span className="truncate">{project.name}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Button variant="outline" size="sm" onClick={() => openAssociate(pr)} className="self-start">
+            Vincular…
+          </Button>
         </Section>
 
-        <Section title="Últimos comentários">
+        <CollapsibleSection title="Últimos comentários">
           {detail.isLoading ? (
             <Skeleton className="h-16 w-full" />
+          ) : detail.isError ? (
+            <p className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+              Não foi possível carregar os comentários.
+              <button
+                type="button"
+                onClick={() => detail.refetch()}
+                className="rounded-sm text-foreground underline underline-offset-2 hover:text-primary"
+              >
+                Tentar de novo
+              </button>
+            </p>
           ) : detail.data?.comments.length ? (
             <ul className="flex flex-col gap-3">
               {detail.data.comments.map((c) => (
@@ -211,7 +332,7 @@ function DrawerBody({
           ) : (
             <p className="text-sm text-muted-foreground">Nenhum comentário ainda.</p>
           )}
-        </Section>
+        </CollapsibleSection>
       </div>
 
       <footer className="flex flex-wrap items-center gap-2 border-t px-6 py-4">
@@ -223,6 +344,41 @@ function DrawerBody({
           <ArrowUpRightIcon />
           Abrir no Bitbucket
         </Button>
+        <ButtonLink
+          href={bancadaPath({
+            prKey: prKey(pr.repository.uuid, pr.id),
+            title: pr.title,
+            url: pr.url,
+            repoSlug: pr.repository.slug,
+          })}
+          variant="outline"
+          size="sm"
+        >
+          <CircleDotIcon />
+          Anotar teste
+        </ButtonLink>
+        {focus.item ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={focusActions.remove.isPending}
+            onClick={() => focusActions.remove.mutate(focus.item!.id)}
+          >
+            <PinOffIcon />
+            Tirar do foco
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={focus.full || focusActions.add.isPending}
+            title={focus.full ? "O foco de hoje já tem 3 PRs" : undefined}
+            onClick={() => focusActions.add.mutate(pr)}
+          >
+            <PinIcon />
+            Fixar no foco
+          </Button>
+        )}
         {snoozed ? (
           <Button
             variant="outline"
@@ -267,12 +423,23 @@ export function PullRequestDrawer({
   onClose: () => void;
 }) {
   return (
-    <SideSheet
+    <Drawer
       open={pr !== null}
       onOpenChange={(open) => !open && onClose()}
       ariaLabel={pr ? `Detalhes de ${pr.repository.slug} #${pr.id}` : "Detalhes do PR"}
+      className="z-[95] w-full max-w-xl"
+      backdropClassName="z-[90] bg-background/30 backdrop-blur-[2px]"
     >
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Fechar"
+        onClick={onClose}
+        className="absolute top-4 right-4 z-10 rounded-full"
+      >
+        <XIcon aria-hidden className="size-4" />
+      </Button>
       {pr ? <DrawerBody pr={pr} insight={insight} jiraBaseUrl={jiraBaseUrl} /> : null}
-    </SideSheet>
+    </Drawer>
   );
 }

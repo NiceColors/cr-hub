@@ -6,14 +6,21 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   BookmarkCheckIcon,
   BookmarkPlusIcon,
+  CalendarDaysIcon,
   CircleCheckIcon,
   FolderGit2Icon,
+  FolderKanbanIcon,
   GitPullRequestIcon,
   InboxIcon,
   LayersIcon,
+  ListIcon,
   RefreshCwIcon,
 } from "lucide-react";
-import type { FilterField, FilterQuery } from "@/components/reui/filters/filters-types";
+import type {
+  FilterField,
+  FilterOperator,
+  FilterQuery,
+} from "@/components/reui/filters/filters-types";
 import {
   Alert,
   AlertContent,
@@ -22,9 +29,12 @@ import {
   AlertTitle,
 } from "@/components/motion/alert";
 import { Button, ButtonLink } from "@/components/motion/button/base";
+import { StatefulButton } from "@/components/motion/button/stateful";
+import { useMutationButtonState } from "@/hooks/use-mutation-button-state";
 import { Checkbox } from "@/components/motion/checkbox";
-import { Table } from "@/components/motion/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
+import { Table, type SortState, type TableColumn } from "@/components/motion/table";
+import { sortByColumn } from "@/components/motion/table/use-column-sort";
+import { SegmentedControl } from "@/components/segmented-control";
 import {
   Empty,
   EmptyContent,
@@ -33,20 +43,37 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/page-header";
+import { PULL_REQUEST_READ_SCOPE } from "@/lib/bitbucket/scopes";
 import { RelativeTime } from "@/components/relative-time";
 import { buildPullRequestColumns } from "@/components/pull-requests/pull-request-columns";
 import { PullRequestStats } from "@/components/pull-requests/pull-request-stats";
 import { PullRequestToolbar } from "@/components/pull-requests/pull-request-toolbar";
-import { PullRequestActionsProvider } from "@/components/pull-requests/pull-request-actions";
+import {
+  PullRequestActionsProvider,
+  PullRequestContextMenu,
+} from "@/components/pull-requests/pull-request-actions";
 import { PullRequestDrawer } from "@/components/pull-requests/pull-request-drawer";
 import { SaveViewDialog } from "@/components/pull-requests/save-view-dialog";
 import {
   EMPTY_FILTER_QUERY,
+  FILTER_OPERATOR_LABELS_PT,
   NO_TARGET,
+  UNLINKED_PROJECT,
   isFilterQuery,
   matchesQuery,
 } from "@/components/pull-requests/filter-query";
+import {
+  groupQueueByProject,
+  projectIdFromGroup,
+  projectIdsByKey,
+  type GroupedQueueRow,
+} from "@/components/pull-requests/project-queue";
+import { ProjectKindBadge } from "@/components/projects/project-kind";
+import { ProjectDialog } from "@/components/projects/project-dialog";
+import { PROJECT_KIND_LABELS } from "@/domain/project";
+import { useProjects, type Project } from "@/hooks/use-projects";
 import {
   useRepositories,
   useSavedViews,
@@ -61,13 +88,28 @@ import {
   type PullRequestItem,
 } from "@/hooks/use-pull-requests";
 import { useHydrated } from "@/hooks/use-hydrated";
+import { useFocus, type FocusItem } from "@/hooks/use-focus";
+import { useOnCall } from "@/hooks/use-on-call";
+import { OnCallStrip } from "@/components/on-call-strip";
+import { FocusStrip, type FocusStatus } from "@/components/pull-requests/focus-strip";
+import { QueuePaginationBar } from "@/components/pull-requests/queue-pagination-bar";
+import {
+  QueueCalendar,
+  type QueueCalendarGroup,
+} from "@/components/pull-requests/queue-calendar";
+import { useQueueLayout, type QueueLayout } from "@/components/pull-requests/queue-layout";
+import {
+  paginate,
+  type QueuePageSize,
+} from "@/components/pull-requests/queue-pagination";
 import { isAwaitingReviewBy, prKey, targetPriority } from "@/domain/pull-request";
-import type { SavedView, SavedViewInput } from "@/lib/api/config";
+import { DEFAULT_POLL_INTERVAL_SECONDS, type SavedView, type SavedViewInput } from "@/lib/api/config";
 import { fitTableHeight } from "@/lib/table-height";
 import { cn } from "@/lib/utils";
 
 const ROW_HEIGHT = 56;
 const NO_PULL_REQUESTS: PullRequestItem[] = [];
+const NO_FOCUS: FocusItem[] = [];
 
 type QueueTab = SavedViewInput["tab"];
 
@@ -115,9 +157,18 @@ function byPriorityThenAge(a: PullRequestItem, b: PullRequestItem) {
   );
 }
 
+/** Visões salvas antigas usam `is`/`is_not`; ficam ocultos, mas continuam válidos. */
+const REPOSITORY_OPERATORS: FilterOperator[] = [
+  { value: "is_any_of", label: FILTER_OPERATOR_LABELS_PT.is_any_of, arity: "many", inverse: "is_none_of" },
+  { value: "is_none_of", label: FILTER_OPERATOR_LABELS_PT.is_none_of, arity: "many", inverse: "is_any_of" },
+  { value: "is", label: FILTER_OPERATOR_LABELS_PT.is, inverse: "is_not", hidden: true },
+  { value: "is_not", label: FILTER_OPERATOR_LABELS_PT.is_not, inverse: "is", hidden: true },
+];
+
 function buildFilterFields(
   repositories: { uuid: string; name: string }[],
   pullRequests: PullRequestItem[],
+  projects: Project[],
 ): FilterField[] {
   const authors = new Map<string, string>();
   for (const pr of pullRequests) authors.set(pr.author.uuid, pr.author.displayName);
@@ -128,7 +179,9 @@ function buildFilterFields(
       label: "Repositório",
       type: "select",
       options: repositories.map((r) => ({ value: r.uuid, label: r.name })),
-      placeholder: "Escolha um repositório",
+      operators: REPOSITORY_OPERATORS,
+      defaultOperator: "is_any_of",
+      placeholder: "Escolha os repositórios",
     },
     {
       id: "author",
@@ -173,14 +226,79 @@ function buildFilterFields(
       ],
       placeholder: "Escolha o estado",
     },
+    {
+      id: "project",
+      label: "Vínculo",
+      type: "select",
+      options: [
+        ...projects
+          .toSorted((a, b) => a.name.localeCompare(b.name, "pt"))
+          .map((project) => ({
+            value: String(project.id),
+            label:
+              project.status === "done"
+                ? `${PROJECT_KIND_LABELS[project.kind]} · ${project.name} · concluído`
+                : `${PROJECT_KIND_LABELS[project.kind]} · ${project.name}`,
+          })),
+        { value: UNLINKED_PROJECT, label: "Sem vínculo" },
+      ],
+      operators: REPOSITORY_OPERATORS,
+      defaultOperator: "is_any_of",
+      placeholder: "Escolha o vínculo",
+    },
   ];
+}
+
+function columnsForQueueRows(
+  columns: TableColumn<PullRequestItem>[],
+): TableColumn<GroupedQueueRow<PullRequestItem>>[] {
+  return columns.map((column) => ({
+    key: column.key,
+    header: column.header,
+    sortable: column.sortable,
+    align: column.align,
+    width: column.width,
+    hideBelow: column.hideBelow,
+    truncate: column.truncate,
+    cell: column.cell ? (row) => column.cell!(row.item) : undefined,
+  }));
+}
+
+function ProjectGroupHeading({
+  project,
+  count,
+  onEdit,
+}: {
+  project: Project | null;
+  count: number;
+  onEdit?: () => void;
+}) {
+  return (
+    <div className="flex w-full min-w-0 items-center gap-2 text-sm">
+      {project ? <ProjectKindBadge kind={project.kind} /> : null}
+      <span className="truncate font-medium">{project ? project.name : "Sem vínculo"}</span>
+      {project?.status === "done" ? (
+        <span className="text-xs text-muted-foreground">Concluído</span>
+      ) : null}
+      <span className="font-mono text-xs tabular-nums text-muted-foreground">{count}</span>
+      {onEdit ? (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="ml-auto text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          Editar
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function TabCount({ value, tone }: { value: number; tone?: "attention" }) {
   return (
     <span
       className={cn(
-        "ml-1.5 rounded-full px-1.5 font-mono text-xs tabular-nums",
+        "rounded-full px-1.5 font-mono text-xs tabular-nums",
         tone === "attention" && value > 0
           ? "bg-primary text-primary-foreground"
           : "bg-muted text-muted-foreground",
@@ -216,6 +334,14 @@ export function PullRequestsView() {
 
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
+  const [groupByProject, setGroupByProject] = useState(false);
+  const [layout, setLayout] = useQueueLayout();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<QueuePageSize>(10);
+  const [sort, setSort] = useState<SortState | null>(null);
+  const pagingKey = `${state.tab}\0${state.teamId ?? ""}\0${state.showSnoozed}\0${groupByProject}\0${JSON.stringify(state.filterQuery)}\0${sort ? `${sort.key}:${sort.direction}` : ""}`;
+  const [trackedPagingKey, setTrackedPagingKey] = useState(pagingKey);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
 
   const repositoriesQuery = useRepositories();
   const teamsQuery = useTeams();
@@ -223,15 +349,24 @@ export function PullRequestsView() {
   const me = useMe();
   const updateView = useUpdateSavedView();
   const meUuid = (hydrated && me.data?.uuid) || null;
-  const pollIntervalSeconds = settingsQuery.data?.pollIntervalSeconds ?? 30;
+  const pollIntervalSeconds = settingsQuery.data?.pollIntervalSeconds ?? DEFAULT_POLL_INTERVAL_SECONDS;
   const jiraBaseUrl = settingsQuery.data?.jiraBaseUrl ?? null;
 
   const { query, refresh } = usePullRequests({
     teamId: state.teamId,
     refreshIntervalSec: pollIntervalSeconds,
   });
+  const refreshState = useMutationButtonState(refresh);
 
   const data = hydrated ? query.data : undefined;
+  const repoErrors = (data?.errors ?? []).filter((error) => error.status !== 429);
+  const rateLimited =
+    Boolean(data?.rateLimit?.retryAfterSeconds) ||
+    (data?.errors ?? []).some((error) => error.status === 429);
+  const missingPullRequestScope = Boolean(
+    repoErrors.length > 0 &&
+      repoErrors.every((error) => error.requiredScopes?.includes(PULL_REQUEST_READ_SCOPE)),
+  );
   const pullRequests = data?.pullRequests ?? NO_PULL_REQUESTS;
   const fetchedAtMs = data ? Date.parse(data.fetchedAt) : 0;
 
@@ -269,24 +404,104 @@ export function PullRequestsView() {
   const snoozedHidden = tabPullRequests.length - unsnoozed.length;
 
   const insights = usePullRequestInsights(unsnoozed);
+  const { projects } = useProjects();
+  const projectIndex = useMemo(() => projectIdsByKey(projects), [projects]);
 
   const filterFields = useMemo(
-    () => buildFilterFields(monitoredRepositories, pullRequests),
-    [monitoredRepositories, pullRequests],
+    () => buildFilterFields(monitoredRepositories, pullRequests, projects),
+    [monitoredRepositories, pullRequests, projects],
   );
 
-  const visible = useMemo(
-    () =>
-      unsnoozed
-        .filter((pr) => matchesQuery(pr, state.filterQuery, { insights }))
-        .sort(byPriorityThenAge),
-    [unsnoozed, state.filterQuery, insights],
-  );
+  const onCall = useOnCall();
+  const focus = useFocus();
+  const focusItems = hydrated ? focus.items : NO_FOCUS;
+  const focusKeys = useMemo(() => new Set(focusItems.map((i) => i.prKey)), [focusItems]);
+
+  const visible = useMemo(() => {
+    const filtered = unsnoozed.filter((pr) =>
+      matchesQuery(pr, state.filterQuery, { insights, projectIdsByKey: projectIndex }),
+    );
+    if (state.tab !== "mine") return filtered.sort(byPriorityThenAge);
+    // Em "Para mim", os PRs do foco de hoje ficam fixados no topo.
+    const pinned = (pr: PullRequestItem) => (focusKeys.has(pullRequestRowId(pr)) ? 0 : 1);
+    return filtered.sort((a, b) => pinned(a) - pinned(b) || byPriorityThenAge(a, b));
+  }, [unsnoozed, state.filterQuery, state.tab, insights, focusKeys, projectIndex]);
 
   const columns = useMemo(
-    () => buildPullRequestColumns({ insights, jiraBaseUrl }),
-    [insights, jiraBaseUrl],
+    () =>
+      buildPullRequestColumns({
+        insights,
+        jiraBaseUrl,
+        suggestFor: onCall.suggestFor,
+        focusKeys,
+      }),
+    [insights, jiraBaseUrl, onCall.suggestFor, focusKeys],
   );
+  const groupedColumns = useMemo(() => columnsForQueueRows(columns), [columns]);
+
+  // Ordena a fila inteira antes de paginar; a Table só exibe o indicador.
+  const sortedVisible = useMemo(
+    () => (sort ? sortByColumn(visible, columns, sort) : visible),
+    [visible, columns, sort],
+  );
+
+  const groupedRows = useMemo(
+    () => groupQueueByProject(sortedVisible, pullRequestRowId, projects, projectIndex),
+    [sortedVisible, projects, projectIndex],
+  );
+  const groupCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of groupedRows) counts.set(row.groupId, (counts.get(row.groupId) ?? 0) + 1);
+    return counts;
+  }, [groupedRows]);
+
+  const requestedPage = trackedPagingKey === pagingKey ? page : 1;
+  const flatPage = paginate(sortedVisible, requestedPage, pageSize);
+  const groupedPage = paginate(groupedRows, requestedPage, pageSize);
+  const queuePage = groupByProject ? groupedPage : flatPage;
+  if (trackedPagingKey !== pagingKey) {
+    setTrackedPagingKey(pagingKey);
+    setPage(queuePage.page);
+  } else if (queuePage.page !== page) {
+    setPage(queuePage.page);
+  }
+  const projectById = (id: number | null) =>
+    id === null ? null : (projects.find((project) => project.id === id) ?? null);
+
+  const groupCalendarDay = (items: PullRequestItem[]): QueueCalendarGroup[] => {
+    const blocks: { id: string; items: PullRequestItem[] }[] = [];
+    for (const row of groupQueueByProject(items, pullRequestRowId, projects, projectIndex)) {
+      const last = blocks.at(-1);
+      if (last?.id === row.groupId) last.items.push(row.item);
+      else blocks.push({ id: row.groupId, items: [row.item] });
+    }
+    return blocks.map((block) => {
+      const project = projectById(projectIdFromGroup(block.id));
+      return {
+        ...block,
+        label: (
+          <ProjectGroupHeading
+            project={project}
+            count={block.items.length}
+            onEdit={project ? () => setEditingProject(project) : undefined}
+          />
+        ),
+      };
+    });
+  };
+
+  const groupedPageHeaders = groupedPage.items.reduce(
+    (count, row, index, rows) =>
+      count + (index === 0 || rows[index - 1].groupId !== row.groupId ? 1 : 0),
+    0,
+  );
+
+  const focusStatus = (item: FocusItem): FocusStatus => {
+    const pr = pullRequests.find((p) => pullRequestRowId(p) === item.prKey);
+    if (!pr) return "gone";
+    const mine = pr.reviewers.find((r) => r.uuid === meUuid);
+    return mine && (mine.approved || mine.changesRequested) ? "reviewed" : "pending";
+  };
 
   const preview = previewKey
     ? (pullRequests.find((pr) => pullRequestRowId(pr) === previewKey) ?? null)
@@ -310,6 +525,7 @@ export function PullRequestsView() {
     >
       <div className="flex flex-col gap-6">
         <PageHeader
+          actionsOnTitleRow
           title={activeView ? activeView.name : "Fila de CRs"}
           description={
             activeView
@@ -318,7 +534,7 @@ export function PullRequestsView() {
           }
           actions={
             <>
-              <span className="hidden text-xs text-muted-foreground sm:inline">
+              <span className="hidden whitespace-nowrap text-xs text-muted-foreground sm:inline">
                 {data ? (
                   <>
                     Atualizado <RelativeTime iso={data.fetchedAt} />
@@ -328,15 +544,19 @@ export function PullRequestsView() {
                   "Aguardando primeira atualização"
                 )}
               </span>
-              <Button
+              <StatefulButton
                 variant="outline"
                 size="sm"
+                className="shrink-0 whitespace-nowrap"
+                state={refreshState}
+                icon={<RefreshCwIcon className="size-3.5" />}
+                loadingText="Atualizando"
+                successText="Atualizado"
+                errorText="Falhou"
                 onClick={() => refresh.mutate()}
-                disabled={refresh.isPending}
               >
-                <RefreshCwIcon className={cn("size-3.5", refresh.isPending && "animate-spin")} />
                 Atualizar
-              </Button>
+              </StatefulButton>
             </>
           }
         />
@@ -352,24 +572,48 @@ export function PullRequestsView() {
           </AlertContent>
         </Alert>
 
-        <Alert variant="warning" open={Boolean(data?.rateLimit?.retryAfterSeconds)}>
+        <Alert variant="warning" open={rateLimited}>
           <AlertIcon />
           <AlertContent>
             <AlertTitle>Limite da API do Bitbucket atingido</AlertTitle>
             <AlertDescription>
-              Nova tentativa em{" "}
-              <span className="font-mono tabular-nums">{data?.rateLimit?.retryAfterSeconds}s</span>.
+              A fila segue com os dados já carregados.
+              {data?.rateLimit?.retryAfterSeconds ? (
+                <>
+                  {" "}
+                  Nova tentativa em{" "}
+                  <span className="font-mono tabular-nums">
+                    {data.rateLimit.retryAfterSeconds}s
+                  </span>
+                  .
+                </>
+              ) : (
+                " Nova tentativa no próximo ciclo."
+              )}
             </AlertDescription>
           </AlertContent>
         </Alert>
 
-        <Alert variant="destructive" open={Boolean(data?.errors.length)}>
+        <Alert variant="destructive" open={missingPullRequestScope}>
           <AlertIcon />
           <AlertContent>
-            <AlertTitle>Falha ao consultar {data?.errors.length} repositório(s)</AlertTitle>
+            <AlertTitle>O token não lê pull requests</AlertTitle>
+            <AlertDescription>
+              Falta o escopo <span className="font-mono">read:pullrequest:bitbucket</span>. Gere um
+              API token com esse escopo e com{" "}
+              <span className="font-mono">write:pullrequest:bitbucket</span> e atualize em{" "}
+              <Link href="/config">Configuração → Integrações</Link>.
+            </AlertDescription>
+          </AlertContent>
+        </Alert>
+
+        <Alert variant="destructive" open={repoErrors.length > 0 && !missingPullRequestScope}>
+          <AlertIcon />
+          <AlertContent>
+            <AlertTitle>Falha ao consultar {repoErrors.length} repositório(s)</AlertTitle>
             <AlertDescription>
               <ul className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-xs">
-                {data?.errors.map((e) => (
+                {repoErrors.map((e) => (
                   <li key={e.repositorySlug} title={e.message}>
                     {e.repositorySlug}
                     {e.status ? ` (${e.status})` : ""}
@@ -380,57 +624,75 @@ export function PullRequestsView() {
           </AlertContent>
         </Alert>
 
+        <OnCallStrip entries={onCall.entries} teamId={state.teamId} />
+
         <PullRequestStats pullRequests={visible} insights={insights} isLoading={isInitialLoad} />
 
         <section aria-label="Pull requests" className="flex flex-col gap-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <Tabs
+            <SegmentedControl
+              label="Recorte da fila"
               value={state.tab}
-              onValueChange={(value) => patch({ tab: value as QueueTab })}
-              variant="segment"
-            >
-              <TabsList aria-label="Recorte da fila" className="border border-border">
-                <TabsTrigger
-                  value="all"
-                  icon={<LayersIcon className="size-4" />}
-                  className="px-3 py-1 text-xs"
-                >
-                  Todos
-                  <TabCount value={byTab.all.length} />
-                </TabsTrigger>
-                <TabsTrigger
-                  value="mine"
-                  icon={<InboxIcon className="size-4" />}
-                  className="px-3 py-1 text-xs"
-                  disabled={!meUuid}
-                  title={meUuid ? undefined : "Não foi possível identificar o dono do token"}
-                >
-                  Para mim
-                  <TabCount value={byTab.awaiting} tone="attention" />
-                </TabsTrigger>
-                <TabsTrigger
-                  value="authored"
-                  icon={<GitPullRequestIcon className="size-4" />}
-                  className="px-3 py-1 text-xs"
-                  disabled={!meUuid}
-                >
-                  Meus PRs
-                  <TabCount value={byTab.authored.length} />
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-
-            <Checkbox
-              checked={state.showSnoozed}
-              onCheckedChange={(checked) => patch({ showSnoozed: checked })}
-              label={
-                snoozedHidden > 0 && !state.showSnoozed
-                  ? `Mostrar silenciados (${snoozedHidden})`
-                  : "Mostrar silenciados"
-              }
-              className="text-sm"
+              onChange={(tab) => patch({ tab })}
+              options={[
+                {
+                  value: "all",
+                  label: "Todos",
+                  icon: <LayersIcon />,
+                  suffix: <TabCount value={byTab.all.length} />,
+                },
+                {
+                  value: "mine",
+                  label: "Para mim",
+                  icon: <InboxIcon />,
+                  suffix: <TabCount value={byTab.awaiting} tone="attention" />,
+                  disabled: !meUuid,
+                  title: meUuid ? undefined : "Não foi possível identificar o dono do token",
+                },
+                {
+                  value: "authored",
+                  label: "Meus PRs",
+                  icon: <GitPullRequestIcon />,
+                  suffix: <TabCount value={byTab.authored.length} />,
+                  disabled: !meUuid,
+                },
+              ]}
             />
+
+            <div className="flex flex-wrap items-center gap-3">
+              <SegmentedControl<QueueLayout>
+                label="Visualização da fila"
+                value={layout}
+                onChange={setLayout}
+                options={[
+                  { value: "table", label: "Lista", icon: <ListIcon /> },
+                  { value: "calendar", label: "Calendário", icon: <CalendarDaysIcon /> },
+                ]}
+                className="shrink-0"
+              />
+              <Button
+                variant={groupByProject ? "secondary" : "outline"}
+                size="sm"
+                aria-pressed={groupByProject}
+                onClick={() => setGroupByProject((current) => !current)}
+              >
+                <FolderKanbanIcon className="size-3.5" />
+                Por projeto
+              </Button>
+              <Checkbox
+                checked={state.showSnoozed}
+                onCheckedChange={(checked) => patch({ showSnoozed: checked })}
+                label={
+                  snoozedHidden > 0 && !state.showSnoozed
+                    ? `Mostrar silenciados (${snoozedHidden})`
+                    : "Mostrar silenciados"
+                }
+                className="text-sm"
+              />
+            </div>
           </div>
+
+          {state.tab === "mine" ? <FocusStrip items={focusItems} statusOf={focusStatus} /> : null}
 
           <PullRequestToolbar
             teams={teamsQuery.data?.teams ?? []}
@@ -459,25 +721,127 @@ export function PullRequestsView() {
             }
           />
 
-          <Table
-            data={visible}
-            columns={columns}
-            getRowId={pullRequestRowId}
-            rowHeight={ROW_HEIGHT}
-            height={fitTableHeight(visible.length, ROW_HEIGHT, { minRows: 5, maxRows: 14 })}
-            loading={isInitialLoad}
-            onRowClick={(pr) => setPreviewKey(pullRequestRowId(pr))}
-            getRowLabel={(pr) => `Ver detalhes de ${pr.repository.slug} #${pr.id}: ${pr.title}`}
-            getRowClassName={(pr) => (pr.snooze ? "opacity-60" : undefined)}
-            emptyState={
-              <QueueEmptyState
-                hasConfig={hasConfig}
-                tab={state.tab}
-                filtered={tabPullRequests.length > 0}
+          {layout === "calendar" ? (
+            isInitialLoad ? (
+              <Skeleton className="h-80 rounded-2xl" aria-label="Carregando calendário" />
+            ) : visible.length === 0 ? (
+              <div className="rounded-2xl border border-border bg-card px-6 py-10">
+                <QueueEmptyState
+                  hasConfig={hasConfig}
+                  tab={state.tab}
+                  filtered={tabPullRequests.length > 0}
+                />
+              </div>
+            ) : (
+              <QueueCalendar
+                pullRequests={visible}
+                onOpen={(pr) => setPreviewKey(pullRequestRowId(pr))}
+                groupDay={groupByProject ? groupCalendarDay : undefined}
+                pageSize={pageSize}
+                onPageSizeChange={(next) => {
+                  setPageSize(next);
+                  setPage(1);
+                }}
               />
-            }
-            className="rounded-2xl"
-          />
+            )
+          ) : groupByProject ? (
+            <PullRequestContextMenu
+              resolve={(rowId) =>
+                groupedPage.items.find(
+                  (row) => `${row.groupId}:${pullRequestRowId(row.item)}` === rowId,
+                )?.item ?? null
+              }
+            >
+              <Table
+                data={groupedPage.items}
+                columns={groupedColumns}
+                sort={sort}
+                onSortChange={setSort}
+                manualSort
+                getRowId={(row) => `${row.groupId}:${pullRequestRowId(row.item)}`}
+                getRowGroup={(row) => {
+                  const projectId = projectIdFromGroup(row.groupId);
+                  const project =
+                    projectId === null ? null : (projects.find((item) => item.id === projectId) ?? null);
+                  return {
+                    id: row.groupId,
+                    label: (
+                      <ProjectGroupHeading
+                        project={project}
+                        count={groupCounts.get(row.groupId) ?? 0}
+                        onEdit={project ? () => setEditingProject(project) : undefined}
+                      />
+                    ),
+                  };
+                }}
+                rowHeight={ROW_HEIGHT}
+                height={fitTableHeight(groupedPage.items.length + groupedPageHeaders, ROW_HEIGHT, {
+                  minRows: 5,
+                  maxRows: pageSize,
+                })}
+                loading={isInitialLoad}
+                onRowClick={(row) => setPreviewKey(pullRequestRowId(row.item))}
+                getRowClassName={(row) => (row.item.snooze ? "opacity-60" : undefined)}
+                emptyState={
+                  <QueueEmptyState
+                    hasConfig={hasConfig}
+                    tab={state.tab}
+                    filtered={tabPullRequests.length > 0}
+                  />
+                }
+                fitContainer
+                className="rounded-2xl"
+              />
+            </PullRequestContextMenu>
+          ) : (
+            <PullRequestContextMenu
+              resolve={(rowId) =>
+                flatPage.items.find((pr) => pullRequestRowId(pr) === rowId) ?? null
+              }
+            >
+              <Table
+                data={flatPage.items}
+                columns={columns}
+                sort={sort}
+                onSortChange={setSort}
+                manualSort
+                getRowId={pullRequestRowId}
+                rowHeight={ROW_HEIGHT}
+                height={fitTableHeight(flatPage.items.length, ROW_HEIGHT, {
+                  minRows: 5,
+                  maxRows: pageSize,
+                })}
+                loading={isInitialLoad}
+                onRowClick={(pr) => setPreviewKey(pullRequestRowId(pr))}
+                getRowClassName={(pr) => (pr.snooze ? "opacity-60" : undefined)}
+                emptyState={
+                  <QueueEmptyState
+                    hasConfig={hasConfig}
+                    tab={state.tab}
+                    filtered={tabPullRequests.length > 0}
+                  />
+                }
+                fitContainer
+                className="rounded-2xl"
+              />
+            </PullRequestContextMenu>
+          )}
+
+          {layout === "table" && queuePage.total > 0 ? (
+            <QueuePaginationBar
+              page={queuePage.page}
+              pageCount={queuePage.pageCount}
+              pageSize={pageSize}
+              start={queuePage.start}
+              end={queuePage.end}
+              total={queuePage.total}
+              onPageChange={setPage}
+              onPageSizeChange={(next) => {
+                setPageSize(next);
+                setPage(1);
+              }}
+            />
+          ) : null}
         </section>
       </div>
 
@@ -486,6 +850,16 @@ export function PullRequestsView() {
         insight={preview ? insights[pullRequestRowId(preview)] : undefined}
         jiraBaseUrl={jiraBaseUrl}
         onClose={() => setPreviewKey(null)}
+      />
+
+      <ProjectDialog
+        open={editingProject !== null}
+        project={editingProject}
+        onOpenChange={(open) => {
+          if (!open) setEditingProject(null);
+        }}
+        onSaved={() => setEditingProject(null)}
+        onDeleted={() => setEditingProject(null)}
       />
 
       <SaveViewDialog

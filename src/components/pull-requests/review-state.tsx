@@ -2,18 +2,18 @@ import { AnimatedBadge, type AnimatedBadgeStatus } from "@/components/motion/ani
 import type { AgeBand, ReviewState } from "@/hooks/use-pull-requests";
 import { cn } from "@/lib/utils";
 
-const REVIEW_STATE: Record<ReviewState, { label: string; status: AnimatedBadgeStatus }> = {
-  approved: { label: "Aprovado", status: "success" },
-  changes_requested: { label: "Mudanças pedidas", status: "danger" },
-  in_review: { label: "Em revisão", status: "info" },
-  waiting: { label: "Aguardando", status: "neutral" },
+const REVIEW_STATE: Record<ReviewState, { label: string; short: string; status: AnimatedBadgeStatus }> = {
+  approved: { label: "Aprovado", short: "Aprovado", status: "success" },
+  changes_requested: { label: "Mudanças pedidas", short: "Mudanças", status: "danger" },
+  in_review: { label: "Em revisão", short: "Revisão", status: "info" },
+  waiting: { label: "Aguardando", short: "Espera", status: "neutral" },
 };
 
-export function ReviewStateBadge({ state }: { state: ReviewState }) {
-  const { label, status } = REVIEW_STATE[state];
+export function ReviewStateBadge({ state, compact = false }: { state: ReviewState; compact?: boolean }) {
+  const { label, short, status } = REVIEW_STATE[state];
   return (
-    <AnimatedBadge status={status} size="sm">
-      {label}
+    <AnimatedBadge status={status} size="sm" title={compact ? label : undefined}>
+      {compact ? short : label}
     </AnimatedBadge>
   );
 }
@@ -35,9 +35,12 @@ export function AgeIndicator({ band }: { band: AgeBand }) {
 export function ApprovalsMeter({
   approvals,
   required,
+  compact = false,
 }: {
   approvals: number;
   required: number;
+  /** Fraction only. The segment bar stays in the detail view. */
+  compact?: boolean;
 }) {
   const segments = Math.max(required, 1);
   const met = approvals >= required;
@@ -50,17 +53,19 @@ export function ApprovalsMeter({
       aria-valuenow={Math.min(approvals, segments)}
       aria-label={`${approvals} de ${required} aprovações`}
     >
-      <div className="flex gap-0.5">
-        {Array.from({ length: segments }, (_, i) => (
-          <span
-            key={i}
-            className={cn(
-              "h-1.5 w-3 rounded-full",
-              i < approvals ? (met ? "bg-success" : "bg-primary") : "bg-secondary",
-            )}
-          />
-        ))}
-      </div>
+      {compact ? null : (
+        <div className="flex gap-0.5">
+          {Array.from({ length: segments }, (_, i) => (
+            <span
+              key={i}
+              className={cn(
+                "h-1.5 w-3 rounded-full",
+                i < approvals ? (met ? "bg-success" : "bg-primary") : "bg-secondary",
+              )}
+            />
+          ))}
+        </div>
+      )}
       <span
         className={cn(
           "font-mono text-xs tabular-nums",

@@ -1,37 +1,68 @@
 "use client";
 
-import { createContext, use, useId, useState } from "react";
+import { createContext, use, useId, useState, type ReactNode } from "react";
 import {
   ArrowUpRightIcon,
   BellIcon,
   BellOffIcon,
   EllipsisIcon,
+  FolderKanbanIcon,
+  GaugeIcon,
   PanelRightOpenIcon,
+  PinIcon,
+  PinOffIcon,
   UserPlusIcon,
 } from "lucide-react";
 import { Button } from "@/components/motion/button/base";
 import { CenterMorphModal, CenterMorphModalContent } from "@/components/motion/center-morph-modal";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/motion/context-menu";
 import { Input } from "@/components/motion/input";
+import { RadioGroup, RadioGroupItem } from "@/components/motion/radio";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { isReviewerOrAuthor, type SnoozeKind } from "@/domain/pull-request";
 import {
+  COMPLEXITIES,
+  isReviewerOrAuthor,
+  prKey,
+  type Complexity,
+  type SnoozeKind,
+} from "@/domain/pull-request";
+import { FOCUS_LIMIT, useFocus, useFocusActions } from "@/hooks/use-focus";
+import {
+  COMPLEXITY_LABELS,
   SNOOZE_LABELS,
   useAddMeAsReviewer,
+  useComplexity,
   useSnooze,
   type PullRequestItem,
 } from "@/hooks/use-pull-requests";
-import { cn } from "@/lib/utils";
+import { COMPLEXITY_ICON } from "@/components/pull-requests/pull-request-badges";
+import { AssociatePullRequestDialog } from "@/components/projects/associate-dialog";
 
 type PullRequestActionsValue = {
   meUuid: string | null;
   openPreview: (pr: PullRequestItem) => void;
   openSnooze: (pr: PullRequestItem) => void;
+  openAssociate: (pr: PullRequestItem) => void;
 };
 
 const PullRequestActionsContext = createContext<PullRequestActionsValue | null>(null);
@@ -53,12 +84,19 @@ export function PullRequestActionsProvider({
   children: React.ReactNode;
 }) {
   const [snoozeTarget, setSnoozeTarget] = useState<PullRequestItem | null>(null);
+  const [associateTarget, setAssociateTarget] = useState<PullRequestItem | null>(null);
   return (
     <PullRequestActionsContext
-      value={{ meUuid, openPreview: onOpenPreview, openSnooze: setSnoozeTarget }}
+      value={{
+        meUuid,
+        openPreview: onOpenPreview,
+        openSnooze: setSnoozeTarget,
+        openAssociate: setAssociateTarget,
+      }}
     >
       {children}
       <SnoozeDialog pr={snoozeTarget} onClose={() => setSnoozeTarget(null)} />
+      <AssociatePullRequestDialog pr={associateTarget} onClose={() => setAssociateTarget(null)} />
     </PullRequestActionsContext>
   );
 }
@@ -67,8 +105,76 @@ export function canAddMeAsReviewer(pr: PullRequestItem, meUuid: string | null) {
   return Boolean(meUuid) && !isReviewerOrAuthor(pr, meUuid);
 }
 
+/** Estado do PR na fila de foco: fixado (com o item), livre, ou sem vaga. */
+export function useFocusState(pr: PullRequestItem) {
+  const { items } = useFocus();
+  const key = prKey(pr.repository.uuid, pr.id);
+  const item = items.find((i) => i.prKey === key) ?? null;
+  return { item, full: !item && items.length >= FOCUS_LIMIT };
+}
+
+const NO_COMPLEXITY = "none";
+
+function ComplexitySubmenu({ pr }: { pr: PullRequestItem }) {
+  const { set, clear } = useComplexity();
+  const Icon = pr.complexity ? COMPLEXITY_ICON[pr.complexity] : GaugeIcon;
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <Icon />
+        Complexidade
+        {pr.complexity ? (
+          <span className="ml-auto text-xs text-muted-foreground">
+            {COMPLEXITY_LABELS[pr.complexity]}
+          </span>
+        ) : null}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-40">
+        <DropdownMenuRadioGroup
+          value={pr.complexity ?? NO_COMPLEXITY}
+          onValueChange={(value) => {
+            if (value === NO_COMPLEXITY) clear.mutate(pr);
+            else set.mutate({ pr, complexity: value as Complexity });
+          }}
+        >
+          {COMPLEXITIES.map((c) => {
+            const ItemIcon = COMPLEXITY_ICON[c];
+            return (
+              <DropdownMenuRadioItem key={c} value={c}>
+                <ItemIcon />
+                {COMPLEXITY_LABELS[c]}
+              </DropdownMenuRadioItem>
+            );
+          })}
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioItem value={NO_COMPLEXITY}>Sem complexidade</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+function FocusMenuItem({ pr }: { pr: PullRequestItem }) {
+  const { item, full } = useFocusState(pr);
+  const { add, remove } = useFocusActions();
+  if (item) {
+    return (
+      <DropdownMenuItem onClick={() => remove.mutate(item.id)}>
+        <PinOffIcon />
+        Tirar do foco de hoje
+      </DropdownMenuItem>
+    );
+  }
+  return (
+    <DropdownMenuItem disabled={full || add.isPending} onClick={() => add.mutate(pr)}>
+      <PinIcon />
+      {full ? `Foco cheio (${FOCUS_LIMIT}/${FOCUS_LIMIT})` : "Fixar no foco de hoje"}
+    </DropdownMenuItem>
+  );
+}
+
 export function PullRequestRowMenu({ pr }: { pr: PullRequestItem }) {
-  const { meUuid, openPreview, openSnooze } = usePullRequestActions();
+  const { meUuid, openPreview, openSnooze, openAssociate } = usePullRequestActions();
   const snooze = useSnooze();
   const addMe = useAddMeAsReviewer();
 
@@ -76,7 +182,7 @@ export function PullRequestRowMenu({ pr }: { pr: PullRequestItem }) {
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={`Ações para ${pr.repository.slug} #${pr.id}`}
-        className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none data-popup-open:bg-muted"
+        render={<Button variant="ghost" size="icon" className="data-popup-open:bg-muted" />}
       >
         <EllipsisIcon aria-hidden className="size-4" />
       </DropdownMenuTrigger>
@@ -90,6 +196,12 @@ export function PullRequestRowMenu({ pr }: { pr: PullRequestItem }) {
           Abrir no Bitbucket
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => openAssociate(pr)}>
+          <FolderKanbanIcon />
+          Vincular…
+        </DropdownMenuItem>
+        <ComplexitySubmenu pr={pr} />
+        <FocusMenuItem pr={pr} />
         {pr.snooze ? (
           <DropdownMenuItem onClick={() => snooze.clear.mutate(pr)}>
             <BellIcon />
@@ -112,6 +224,133 @@ export function PullRequestRowMenu({ pr }: { pr: PullRequestItem }) {
   );
 }
 
+function rowIdFrom(target: EventTarget | null) {
+  return target instanceof Element
+    ? (target.closest<HTMLElement>("[data-row-id]")?.dataset.rowId ?? null)
+    : null;
+}
+
+/**
+ * Clique direito, toque longo ou a tecla Menu numa linha da fila abrem as
+ * mesmas ações do menu ⋯. No cabeçalho e no vazio da tabela, nenhum menu abre.
+ */
+export function PullRequestContextMenu({
+  resolve,
+  children,
+}: {
+  resolve: (rowId: string) => PullRequestItem | null;
+  children: ReactNode;
+}) {
+  const [pr, setPr] = useState<PullRequestItem | null>(null);
+  const pick = (target: EventTarget | null) => {
+    const rowId = rowIdFrom(target);
+    const found = rowId ? resolve(rowId) : null;
+    setPr(found);
+    return found;
+  };
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger>
+        <div
+          onPointerDown={(event) => {
+            const pressToOpen = event.pointerType === "touch" || event.pointerType === "pen";
+            if (!pick(event.target) && pressToOpen) event.preventDefault();
+          }}
+          onContextMenu={(event) => {
+            if (!pick(event.target)) event.preventDefault();
+          }}
+          onKeyDown={(event) => {
+            const menuKey = event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
+            if (menuKey && !pick(event.target)) event.preventDefault();
+          }}
+        >
+          {children}
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent
+        ariaLabel={pr ? `Ações para ${pr.repository.slug} #${pr.id}` : "Ações do PR"}
+      >
+        {pr ? <PullRequestContextItems pr={pr} /> : null}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function PullRequestContextItems({ pr }: { pr: PullRequestItem }) {
+  const { meUuid, openPreview, openSnooze, openAssociate } = usePullRequestActions();
+  const snooze = useSnooze();
+  const addMe = useAddMeAsReviewer();
+  const { set, clear } = useComplexity();
+  const { item, full } = useFocusState(pr);
+  const focusActions = useFocusActions();
+
+  return (
+    <>
+      <ContextMenuItem onSelect={() => openPreview(pr)}>
+        <PanelRightOpenIcon aria-hidden className="size-4" />
+        Ver detalhes
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => window.open(pr.url, "_blank", "noopener,noreferrer")}>
+        <ArrowUpRightIcon aria-hidden className="size-4" />
+        Abrir no Bitbucket
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => openAssociate(pr)}>
+        <FolderKanbanIcon aria-hidden className="size-4" />
+        Vincular…
+      </ContextMenuItem>
+      {item ? (
+        <ContextMenuItem onSelect={() => focusActions.remove.mutate(item.id)}>
+          <PinOffIcon aria-hidden className="size-4" />
+          Tirar do foco de hoje
+        </ContextMenuItem>
+      ) : (
+        <ContextMenuItem
+          disabled={full || focusActions.add.isPending}
+          onSelect={() => focusActions.add.mutate(pr)}
+        >
+          <PinIcon aria-hidden className="size-4" />
+          {full ? `Foco cheio (${FOCUS_LIMIT}/${FOCUS_LIMIT})` : "Fixar no foco de hoje"}
+        </ContextMenuItem>
+      )}
+      {pr.snooze ? (
+        <ContextMenuItem onSelect={() => snooze.clear.mutate(pr)}>
+          <BellIcon aria-hidden className="size-4" />
+          Remover silêncio
+        </ContextMenuItem>
+      ) : (
+        <ContextMenuItem onSelect={() => openSnooze(pr)}>
+          <BellOffIcon aria-hidden className="size-4" />
+          Silenciar…
+        </ContextMenuItem>
+      )}
+      {canAddMeAsReviewer(pr, meUuid) ? (
+        <ContextMenuItem disabled={addMe.isPending} onSelect={() => addMe.mutate(pr)}>
+          <UserPlusIcon aria-hidden className="size-4" />
+          Me adicionar como revisor
+        </ContextMenuItem>
+      ) : null}
+      <ContextMenuSeparator />
+      <ContextMenuLabel>Complexidade</ContextMenuLabel>
+      <ContextMenuRadioGroup
+        value={pr.complexity ?? NO_COMPLEXITY}
+        onValueChange={(value) => {
+          if (value === NO_COMPLEXITY) clear.mutate(pr);
+          else set.mutate({ pr, complexity: value as Complexity });
+        }}
+      >
+        {COMPLEXITIES.map((c) => (
+          <ContextMenuRadioItem key={c} value={c}>
+            {COMPLEXITY_LABELS[c]}
+          </ContextMenuRadioItem>
+        ))}
+        <ContextMenuRadioItem value={NO_COMPLEXITY}>Sem complexidade</ContextMenuRadioItem>
+      </ContextMenuRadioGroup>
+    </>
+  );
+}
+
 const REASON_PRESETS = [
   "Aguardando deploy",
   "Aguardando outro PR",
@@ -124,6 +363,7 @@ const SNOOZE_KINDS: SnoozeKind[] = ["24h", "tomorrow", "until_change"];
 function SnoozeForm({ pr, onClose }: { pr: PullRequestItem; onClose: () => void }) {
   const { set } = useSnooze();
   const descriptionId = useId();
+  const durationId = useId();
   const [reason, setReason] = useState("");
   const [kind, setKind] = useState<SnoozeKind>("24h");
   const [touched, setTouched] = useState(false);
@@ -173,33 +413,22 @@ function SnoozeForm({ pr, onClose }: { pr: PullRequestItem; onClose: () => void 
         </div>
       </div>
 
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-2 text-sm font-medium">Duração</legend>
-        <div className="grid gap-2 sm:grid-cols-3">
+      <div className="flex flex-col gap-2">
+        <span id={durationId} className="text-sm font-medium">
+          Duração
+        </span>
+        <RadioGroup
+          aria-labelledby={durationId}
+          orientation="horizontal"
+          value={kind}
+          onValueChange={(value) => setKind(value as SnoozeKind)}
+          className="gap-x-5 gap-y-2"
+        >
           {SNOOZE_KINDS.map((k) => (
-            <label
-              key={k}
-              className={cn(
-                "flex cursor-pointer items-center justify-center rounded-xl border px-3 py-2 text-center text-sm transition-colors",
-                "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring/50",
-                kind === k
-                  ? "border-primary bg-primary/10 text-foreground"
-                  : "border-border text-muted-foreground hover:bg-muted/60",
-              )}
-            >
-              <input
-                type="radio"
-                name="snooze-kind"
-                value={k}
-                checked={kind === k}
-                onChange={() => setKind(k)}
-                className="sr-only"
-              />
-              {SNOOZE_LABELS[k]}
-            </label>
+            <RadioGroupItem key={k} value={k} label={SNOOZE_LABELS[k]} />
           ))}
-        </div>
-      </fieldset>
+        </RadioGroup>
+      </div>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button variant="outline" onClick={onClose}>

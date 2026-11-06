@@ -36,7 +36,7 @@ export function AttentionSync() {
   }, []);
 
   useEffect(() => {
-    if (!data || !meUuid || data.errors.length > 0) return;
+    if (!data || !meUuid || data.errors.some((error) => error.status !== 429)) return;
     const nowMs = Date.now();
     const prev = loadAttentionState(meUuid);
     const next = buildAttentionSnapshot(data.pullRequests, meUuid, nowMs);

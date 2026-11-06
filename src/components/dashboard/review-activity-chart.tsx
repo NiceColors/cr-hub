@@ -12,9 +12,11 @@ const WEEKS = 52;
 export function ReviewActivityChart({
   data,
   isLoading,
+  className,
 }: {
   data: DashboardResponse | undefined;
   isLoading: boolean;
+  className?: string;
 }) {
   const grid = data ? heatCalendarGrid(data.activity.counts, data.activity.today, WEEKS) : null;
   const days = data
@@ -31,6 +33,7 @@ export function ReviewActivityChart({
 
   return (
     <ChartCard
+      className={className}
       title="Atividade de revisão"
       description="PRs que receberam a primeira revisão em cada dia. Mostra a cadência do time."
       state={chartState(isLoading, (grid?.total ?? 0) > 0)}

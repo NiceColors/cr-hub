@@ -32,9 +32,11 @@ function summarize(overall: DashboardResponse["firstReviewOverall"], days: numbe
 export function FirstReviewChart({
   data,
   isLoading,
+  className,
 }: {
   data: DashboardResponse | undefined;
   isLoading: boolean;
+  className?: string;
 }) {
   const points = data?.firstReview ?? [];
   const overall = data?.firstReviewOverall;
@@ -44,6 +46,7 @@ export function FirstReviewChart({
   }));
   return (
     <ChartCard
+      className={className}
       title="Tempo até a primeira revisão"
       description={
         overall && overall.medianHours !== null ? (

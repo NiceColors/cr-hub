@@ -28,9 +28,11 @@ function summarize(points: Point[]) {
 export function AgeChart({
   data,
   isLoading,
+  className,
 }: {
   data: DashboardResponse | undefined;
   isLoading: boolean;
+  className?: string;
 }) {
   const points = data?.queue ?? [];
   const series: CompositionChartSeries[] = BANDS.map((band) => ({
@@ -39,6 +41,7 @@ export function AgeChart({
   }));
   return (
     <ChartCard
+      className={className}
       title="Distribuição por idade"
       description="Parte da fila em cada faixa do SLA do repositório, no fim de cada dia."
       state={chartState(isLoading, points.some((p) => p.total > 0))}

@@ -9,14 +9,26 @@ import {
 const HOUR_MS = 60 * 60 * 1000;
 const UTC_DAY_MS = 24 * HOUR_MS;
 
+/** Janelas que o dashboard oferece, em dias. */
+export const DASHBOARD_RANGES = [7, 14, 30, 90] as const;
+export type DashboardRange = (typeof DASHBOARD_RANGES)[number];
+export const DEFAULT_DASHBOARD_RANGE: DashboardRange = 30;
+
+export function isDashboardRange(value: number): value is DashboardRange {
+  return (DASHBOARD_RANGES as readonly number[]).includes(value);
+}
+
 /** Linha de `pr_history` com o que o dashboard usa. Instantes em ms. */
 export interface HistoryRow {
+  prKey: string;
   repoUuid: string;
+  authorUuid: string;
   createdOn: string; // ISO
   firstSeenAt: number;
   firstReviewAt: number | null;
   approvedAt: number | null;
   closedAt: number | null;
+  changesCycles: number;
 }
 
 export interface DayBucket {
@@ -56,8 +68,24 @@ export interface ThroughputPoint {
   closed: number;
 }
 
+/** Medidas de uma janela de tempo, para comparar com a janela anterior. */
+export interface WindowStats {
+  opened: number;
+  closed: number;
+  firstReviewMedianHours: number | null;
+  /** Da abertura à conclusão, entre os PRs concluídos na janela. */
+  cycleMedianHours: number | null;
+}
+
+export interface PeriodComparison {
+  current: WindowStats;
+  /** Janela de mesmo tamanho logo antes; null se a gravação não a cobre inteira. */
+  previous: WindowStats | null;
+}
+
 export interface DashboardData {
   days: string[];
+  period: PeriodComparison;
   queue: QueuePoint[];
   repositories: RepositorySeries[];
   firstReview: FirstReviewPoint[];
@@ -117,7 +145,7 @@ export function recentDayBuckets(nowMs: number, count: number): DayBucket[] {
   return dayBuckets(addLocalDays(today, -(count - 1)), nowMs, count);
 }
 
-function isOpenAt(row: HistoryRow, atMs: number) {
+export function isOpenAt(row: HistoryRow, atMs: number) {
   return Date.parse(row.createdOn) <= atMs && (row.closedAt === null || row.closedAt > atMs);
 }
 
@@ -256,6 +284,63 @@ export function activityCounts(rows: HistoryRow[]) {
   return counts;
 }
 
+/** Desde quando há gravação para estas linhas. */
+export function recordingSince(rows: HistoryRow[]) {
+  let since: number | null = null;
+  for (const row of rows) if (since === null || row.firstSeenAt < since) since = row.firstSeenAt;
+  return since;
+}
+
+export function windowStats(rows: HistoryRow[], fromMs: number, toMs: number): WindowStats {
+  let opened = 0;
+  let closed = 0;
+  const firstReview: number[] = [];
+  const cycle: number[] = [];
+  const within = (ms: number) => ms >= fromMs && ms <= toMs;
+  for (const row of rows) {
+    const created = Date.parse(row.createdOn);
+    if (within(created)) opened++;
+    if (row.closedAt !== null && within(row.closedAt)) {
+      closed++;
+      cycle.push(Math.max(0, row.closedAt - created) / HOUR_MS);
+    }
+    if (hasObservedFirstReview(row) && within(row.firstReviewAt)) {
+      firstReview.push(Math.max(0, row.firstReviewAt - created) / HOUR_MS);
+    }
+  }
+  const median = (values: number[]) => percentile(values.toSorted((a, b) => a - b), 0.5);
+  return {
+    opened,
+    closed,
+    firstReviewMedianHours: median(firstReview),
+    cycleMedianHours: median(cycle),
+  };
+}
+
+/** A janela dos `buckets` e a de mesmo tamanho imediatamente antes. */
+export function periodComparison(
+  rows: HistoryRow[],
+  buckets: DayBucket[],
+  since: number | null,
+): PeriodComparison {
+  const first = buckets[0];
+  const last = buckets.at(-1);
+  if (!first || !last) {
+    return {
+      current: { opened: 0, closed: 0, firstReviewMedianHours: null, cycleMedianHours: null },
+      previous: null,
+    };
+  }
+  const previousStart = addLocalDays(first.startMs, -buckets.length);
+  return {
+    current: windowStats(rows, first.startMs, last.cutoffMs),
+    previous:
+      since !== null && since <= previousStart
+        ? windowStats(rows, previousStart, first.startMs - 1)
+        : null,
+  };
+}
+
 export function buildDashboard(
   rows: HistoryRow[],
   opts: {
@@ -265,10 +350,11 @@ export function buildDashboard(
     repoNames: Map<string, string>;
   },
 ): DashboardData {
-  const since = rows.length > 0 ? Math.min(...rows.map((r) => r.firstSeenAt)) : null;
+  const since = recordingSince(rows);
   const buckets = dayBuckets(since, opts.nowMs, opts.windowDays);
   return {
     days: buckets.map((b) => b.day),
+    period: periodComparison(rows, buckets, since),
     queue: queueSeries(rows, buckets, opts.slaByRepo),
     repositories: repositorySeries(rows, buckets, opts.repoNames),
     firstReview: firstReviewSeries(rows, buckets),

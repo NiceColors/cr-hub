@@ -7,6 +7,7 @@ import { ChartCard, chartState, DataTable } from "@/components/dashboard/chart-c
 import { formatDayShort, formatNumber, plural } from "@/components/dashboard/format";
 import { recentDayBuckets, reviewRanking, type RankingSeries } from "@/domain/dashboard";
 import { useMembers, useSettings, useTeams } from "@/hooks/use-config";
+import { DEFAULT_POLL_INTERVAL_SECONDS } from "@/lib/api/config";
 import { usePullRequests } from "@/hooks/use-pull-requests";
 
 const DAYS = 10;
@@ -32,7 +33,7 @@ export function ReviewLoadChart({ teamId }: { teamId: number | null }) {
   const teamsData = useTeams().data;
   const { query } = usePullRequests({
     teamId,
-    refreshIntervalSec: settings.data?.pollIntervalSeconds ?? 30,
+    refreshIntervalSec: settings.data?.pollIntervalSeconds ?? DEFAULT_POLL_INTERVAL_SECONDS,
   });
 
   const { series, days } = useMemo(() => {

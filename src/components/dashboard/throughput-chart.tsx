@@ -23,9 +23,11 @@ function summarize(points: DashboardResponse["throughput"]) {
 export function ThroughputChart({
   data,
   isLoading,
+  className,
 }: {
   data: DashboardResponse | undefined;
   isLoading: boolean;
+  className?: string;
 }) {
   const points = data?.throughput ?? [];
   const series: BarChartSeries[] = SERIES.map((band) => ({
@@ -34,6 +36,7 @@ export function ThroughputChart({
   }));
   return (
     <ChartCard
+      className={className}
       title="Throughput"
       description="PRs abertos e concluídos (mergeados ou recusados) por dia."
       state={chartState(isLoading, points.length > 0)}

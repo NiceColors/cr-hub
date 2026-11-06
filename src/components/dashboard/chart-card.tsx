@@ -31,12 +31,15 @@ export function ChartCard({
   summary,
   table,
   empty,
+  actions,
   bodyClassName = "min-h-80",
   className,
   children,
 }: {
   title: string;
   description: ReactNode;
+  /** Controles do gráfico, ao lado de "Ver como tabela". */
+  actions?: ReactNode;
   state: ChartState;
   /** Frase que resume o gráfico para leitores de tela. */
   summary: string;
@@ -57,29 +60,36 @@ export function ChartCard({
       aria-busy={state === "loading"}
       className={cn("flex min-w-0 flex-col gap-4 rounded-2xl border bg-card p-4 sm:p-5", className)}
     >
-      <header className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 basis-56 flex-col gap-1">
           <h2 id={titleId} className="text-sm font-medium">
             {title}
           </h2>
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
-        {state === "ready" ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-pressed={asTable}
-            onClick={() => setAsTable((v) => !v)}
-            className="shrink-0"
-          >
-            {asTable ? (
-              <ChartColumnIcon aria-hidden className="size-3.5" />
-            ) : (
-              <TableIcon aria-hidden className="size-3.5" />
-            )}
-            {asTable ? "Ver como gráfico" : "Ver como tabela"}
-          </Button>
-        ) : null}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {actions}
+          {state === "ready" ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-pressed={asTable}
+              aria-label="Ver como tabela"
+              title={asTable ? "Voltar ao gráfico" : "Ver como tabela"}
+              onClick={() => setAsTable((v) => !v)}
+              className={cn("shrink-0", asTable && "bg-muted text-foreground")}
+            >
+              {asTable ? (
+                <ChartColumnIcon aria-hidden className="size-3.5" />
+              ) : (
+                <TableIcon aria-hidden className="size-3.5" />
+              )}
+              <span aria-hidden className="hidden sm:inline">
+                Tabela
+              </span>
+            </Button>
+          ) : null}
+        </div>
       </header>
 
       {state === "loading" ? (

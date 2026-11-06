@@ -30,9 +30,11 @@ function summarize(points: Point[]) {
 export function QueueChart({
   data,
   isLoading,
+  className,
 }: {
   data: DashboardResponse | undefined;
   isLoading: boolean;
+  className?: string;
 }) {
   const points = data?.queue ?? [];
   const series: BarChartSeries[] = BANDS.map((band) => ({
@@ -41,6 +43,7 @@ export function QueueChart({
   }));
   return (
     <ChartCard
+      className={className}
       title="Fila ao longo do tempo"
       description="PRs abertos no fim de cada dia, pelo estado da revisão."
       state={chartState(isLoading, points.length > 0)}

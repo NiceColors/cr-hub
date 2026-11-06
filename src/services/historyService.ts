@@ -25,33 +25,47 @@ export function recordHistory(
       const existing = tx.select().from(prHistory).where(eq(prHistory.prKey, key)).get();
       const reviewed = pr.hasReviewActivity || pr.reviewState !== "waiting";
       const approved = pr.reviewState === "approved";
+      const changesRequested = pr.reviewState === "changes_requested";
+      const details = {
+        title: pr.title,
+        url: pr.url,
+        repoSlug: pr.repository.slug,
+        authorName: pr.author.displayName,
+        destinationBranch: pr.destinationBranch,
+        lastReviewState: pr.reviewState,
+      };
 
       if (!existing) {
         tx.insert(prHistory)
           .values({
+            ...details,
             prKey: key,
             repoUuid: pr.repository.uuid,
             prId: pr.id,
             authorUuid: pr.author.uuid,
-            destinationBranch: pr.destinationBranch,
             createdOn: pr.createdOn,
             firstSeenAt: now,
             firstReviewAt: reviewed ? now : null,
             approvedAt: approved ? now : null,
             lastSeenAt: now,
             closedAt: null,
+            changesCycles: changesRequested ? 1 : 0,
+            reviewTrackedFromStart: !reviewed,
           })
           .run();
         continue;
       }
 
+      // Um ciclo é cada vez que o PR entra em "mudanças pedidas".
+      const newCycle = changesRequested && existing.lastReviewState !== "changes_requested";
       tx.update(prHistory)
         .set({
-          destinationBranch: pr.destinationBranch,
+          ...details,
           lastSeenAt: now,
           closedAt: null,
           firstReviewAt: existing.firstReviewAt ?? (reviewed ? now : null),
           approvedAt: existing.approvedAt ?? (approved ? now : null),
+          changesCycles: existing.changesCycles + (newCycle ? 1 : 0),
         })
         .where(eq(prHistory.prKey, key))
         .run();

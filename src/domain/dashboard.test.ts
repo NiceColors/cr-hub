@@ -8,10 +8,12 @@ import {
   hasObservedFirstReview,
   heatCalendarGrid,
   percentile,
+  periodComparison,
   queueSeries,
   repositorySeries,
   reviewRanking,
   throughputSeries,
+  windowStats,
   type HistoryRow,
 } from "@/domain/dashboard";
 import type { Reviewer } from "@/domain/pull-request";
@@ -19,15 +21,19 @@ import type { Reviewer } from "@/domain/pull-request";
 const at = (day: number, hour = 12) => new Date(2026, 9, day, hour).getTime();
 const iso = (day: number, hour = 12) => new Date(at(day, hour)).toISOString();
 
+let nextId = 1;
 function row(partial: Partial<HistoryRow> & { createdDay: number }): HistoryRow {
   const { createdDay, ...rest } = partial;
   return {
+    prKey: `r1:${nextId++}`,
     repoUuid: "r1",
+    authorUuid: "a1",
     createdOn: iso(createdDay),
     firstSeenAt: at(createdDay),
     firstReviewAt: null,
     approvedAt: null,
     closedAt: null,
+    changesCycles: 0,
     ...rest,
   };
 }
@@ -152,6 +158,48 @@ describe("buildDashboard", () => {
     expect(data.days).toEqual([]);
     expect(data.queue).toEqual([]);
     expect(data.activity).toEqual({ today: "2026-10-22", counts: {} });
+    expect(data.period).toEqual({
+      current: { opened: 0, closed: 0, firstReviewMedianHours: null, cycleMedianHours: null },
+      previous: null,
+    });
+  });
+});
+
+describe("windowStats", () => {
+  test("conta aberturas e conclusões e tira as medianas dentro da janela", () => {
+    const rows = [
+      row({ createdDay: 20, firstSeenAt: at(20, 8), firstReviewAt: at(20, 14), closedAt: at(21, 12) }),
+      row({ createdDay: 21, firstSeenAt: at(21, 8), firstReviewAt: at(21, 16), closedAt: at(22, 12) }),
+      row({ createdDay: 10, closedAt: at(11) }),
+    ];
+    expect(windowStats(rows, at(20, 0), at(22, 23))).toEqual({
+      opened: 2,
+      closed: 2,
+      firstReviewMedianHours: 3,
+      cycleMedianHours: 24,
+    });
+  });
+});
+
+describe("periodComparison", () => {
+  test("compara com a janela anterior de mesmo tamanho quando a gravação a cobre", () => {
+    // Janela atual: 16 a 22/10. Anterior: 9 a 15/10.
+    const rows = [
+      row({ createdDay: 8, closedAt: at(12) }),
+      row({ createdDay: 10, closedAt: at(17) }),
+      row({ createdDay: 19, closedAt: at(21) }),
+      row({ createdDay: 21 }),
+    ];
+    const buckets = dayBuckets(at(8), at(22, 13), 7);
+    const { current, previous } = periodComparison(rows, buckets, at(8));
+    expect(current).toMatchObject({ opened: 2, closed: 2 });
+    expect(previous).toMatchObject({ opened: 1, closed: 1 });
+  });
+
+  test("sem a janela anterior inteira gravada não há comparação", () => {
+    const rows = [row({ createdDay: 20 })];
+    const buckets = dayBuckets(at(20), at(22, 13), 7);
+    expect(periodComparison(rows, buckets, at(20)).previous).toBeNull();
   });
 });
 

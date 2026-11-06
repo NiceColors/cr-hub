@@ -32,9 +32,11 @@ function summarize(repos: DashboardResponse["repositories"], days: string[]) {
 export function RepositoriesChart({
   data,
   isLoading,
+  className,
 }: {
   data: DashboardResponse | undefined;
   isLoading: boolean;
+  className?: string;
 }) {
   const days = data?.days ?? [];
   const repos = data?.repositories ?? [];
@@ -47,6 +49,7 @@ export function RepositoriesChart({
   const rows = days.map((day, i) => ({ day, i })).toReversed();
   return (
     <ChartCard
+      className={className}
       title="PRs por repositório"
       description="Como a fila se divide entre os repositórios, no fim de cada dia."
       state={chartState(isLoading, repos.length > 0)}

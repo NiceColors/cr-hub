@@ -60,7 +60,9 @@ O banco SQLite guarda a **configuração** do que monitorar, os PRs silenciados,
 | `snoozes` | PRs silenciados: `pr_key` (`{repoUuid}:{id}`), `reason`, `kind` (`24h`, `tomorrow`, `until_change`), `until_ms`, `until_updated_on` |
 | `saved_views` | Visões salvas: `name` (único), `tab`, `team_id`, `filter_query` (JSON), `show_snoozed` |
 | `pr_diffstats` | Linhas adicionadas/removidas e arquivos por PR, válidos enquanto `updated_on` não muda |
-| `pr_history` | Linha do tempo de cada PR: `first_seen_at`, `first_review_at`, `approved_at`, `last_seen_at`, `closed_at` |
+| `pr_history` | Linha do tempo de cada PR: `first_seen_at`, `first_review_at`, `approved_at`, `last_seen_at`, `closed_at`, além de título, link, autor, `changes_cycles` (quantas vezes entrou em "mudanças pedidas") e `review_tracked_from_start` (o app viu o PR antes da primeira revisão) |
+| `team_rotations` | Escala de revisor do dia por time: `member_uuids` (ordem, JSON) e `start_date` (AAAA-MM-DD) |
+| `focus_items` | Fila de foco: PR, `time_spent_ms`, `timer_started_at` (cronômetro rodando) e `done_at` (revisão concluída) |
 | `queue_snapshots` | Retrato horário da fila: total, acima da atenção, críticos, aprovados, aguardando, mudanças pedidas |
 
 ---
@@ -89,6 +91,7 @@ O banco SQLite guarda a **configuração** do que monitorar, os PRs silenciados,
 - **Filtros avançados** (ReUI Filters) por **repositório**, **autor**, **destino**, **tamanho** e **estado**, com operadores "é", "não é", "é qualquer de" e "não é nenhum de", combináveis com E/OU.
 - **Visões salvas**: "Salvar visão" guarda aba, time, filtros e "mostrar silenciados" com um nome. A visão abre por `/?view=ID`, pela sidebar ou pelo ⌘K; se você mudar algo, aparece "Atualizar visão".
 - **Rolagem virtualizada**: a tabela cresce até 14 linhas e, acima disso, rola internamente com o cabeçalho fixo.
+- **Visão de calendário**: o seletor **Lista / Calendário** (lembrado no `localStorage`) troca a tabela por um calendário mensal com os mesmos PRs da aba, time e filtros. Cada dia marca até 3 PRs abertos nele (pela data de criação), em vermelho ou âmbar quando passaram do SLA crítico ou de atenção; o cabeçalho conta os PRs do mês. Escolher um dia desliza o destaque até ele e troca a lista ao lado (título, `slug #id`, autor, idade, destino e estado), e clicar num PR abre o painel de detalhes. **Por projeto** também vale aqui: a lista do dia sai em blocos por projeto (e "Sem vínculo"), com a contagem e o "Editar" de cada bloco. Quando o dia tem mais de 10 PRs, a lista ganha paginação e **Por página** (10, 25, 50 ou 100, o mesmo valor da tabela); trocar de dia ou de agrupamento volta para a primeira página. Setas mudam o dia, Page Up/Page Down mudam o mês e **Hoje** volta para a data atual. As regras ficam em `src/components/pull-requests/queue-calendar-model.ts`, com testes.
 - **Atualização automática** no intervalo configurado. Com a aba oculta, só a fila global segue sendo consultada (para badge e notificações), no mínimo a cada 120s.
 - **Botão "Atualizar"** que força uma nova busca no Bitbucket (limitada a uma vez a cada 10 segundos no servidor).
 - **Avisos contextuais**: configuração incompleta (nenhum repositório monitorado), limite de requisições do Bitbucket atingido (com contagem regressiva) e falhas por repositório (lista dos slugs e status HTTP).
@@ -179,21 +182,107 @@ Um componente montado no layout (`AttentionSync`) acompanha a fila global em qua
 ### 3.5 Equipe (`/equipe`)
 
 - Tabela por membro monitorado com **Para revisar**, **Acima do SLA** (parte das pendentes que passou do limite de atenção) e **PRs abertos** como autor, ordenada por quem tem mais pendências.
-- Selo **"Menor carga"** em quem tem menos pendências, para escolher um revisor.
+- Selo **"Menor carga"** em quem tem menos pendências, para escolher um revisor, e **"Plantão hoje"** em quem está de plantão em algum time.
+- Faixa com o revisor de plantão de cada time (veja 3.7).
 - Filtro por time.
+- **Relatório para a retro** (veja 3.9).
 
 ### 3.6 Histórico
 
-Cada busca real no Bitbucket (não as respostas do cache) atualiza `pr_history`: quando o PR apareceu pela primeira vez, quando teve a primeira atividade de review, quando ficou aprovado e quando sumiu da fila (só conta como fechado se o repositório respondeu sem erro). No máximo uma vez por hora, grava um retrato agregado em `queue_snapshots`. Ainda não há tela para esses dados: eles existem para os futuros gráficos de tendência e de tempo até a primeira revisão.
+Cada busca real no Bitbucket (não as respostas do cache) atualiza `pr_history`: quando o PR apareceu pela primeira vez, quando teve a primeira atividade de review, quando ficou aprovado, quantos ciclos de mudança teve e quando sumiu da fila (só conta como fechado se o repositório respondeu sem erro). No máximo uma vez por hora, grava um retrato agregado em `queue_snapshots`. O relatório semanal (3.9) e o Dashboard (3.11) são construídos sobre esses dados.
 
-### 3.7 Recursos globais
+### 3.7 Escala de revisor do dia
+
+- Configurada no diálogo de cada time: ativar, ordenar os membros (subir, descer, tirar, adicionar) e escolher o dia em que o primeiro da lista começa. A prévia mostra quem está de plantão hoje e no próximo dia útil.
+- A escala anda **um passo por dia útil**. No fim de semana vale o plantão de sexta.
+- O plantão aparece em destaque no topo da Fila de CRs (só o do time filtrado, quando há um) e na página Equipe.
+- **PRs sem revisor** ganham o selo "Sugerido: Nome" com o plantão do time. O time é o primeiro com escala que contém o autor e cobre o repositório. Se o plantão for o próprio autor, sugere o próximo da escala. O painel de detalhes repete a sugestão.
+- As regras ficam em `src/domain/rotation.ts`, com testes. A data é a do navegador.
+
+### 3.8 Fila de foco
+
+- No menu ⋯ da linha ou no painel de detalhes: **"Fixar no foco de hoje"**, até 3 PRs ao mesmo tempo.
+- Na aba **Para mim**, a faixa "Foco de hoje" mostra os PRs escolhidos com um cronômetro. **Revisar** inicia, **Pausar** para e **Concluir** registra o tempo e libera a vaga. Só um cronômetro roda por vez: iniciar outro pausa o anterior.
+- Os PRs do foco ficam fixados no topo da tabela de "Para mim", com um alfinete no título.
+- Quando você já aprovou ou pediu mudanças, o cartão sugere concluir. Se o PR saiu da fila, o cartão avisa.
+- O tempo fica no SQLite local (`focus_items`). Fechar a aba pausa o cronômetro (via `sendBeacon`). Tirar um PR do foco descarta o tempo dele.
+
+### 3.9 Relatório semanal para a retro
+
+- Na página Equipe, escolha a semana (de segunda a domingo, padrão: a semana passada) e use **Copiar Markdown** ou **Baixar .md**.
+- O relatório traz:
+  - PRs abertos na semana, que saíram da fila e que continuam abertos;
+  - **mediana até a primeira revisão**, só com PRs que o app viu antes de serem revisados;
+  - **PRs mais demorados** (que saíram da fila na semana) e os abertos há mais tempo;
+  - **PRs com mais ciclos de mudança**;
+  - o tempo registrado na fila de foco.
+- As regras ficam em `src/domain/weekly-report.ts`, com testes.
+
+### 3.10 Recursos globais
 
 - **Status do token** no rodapé da sidebar: bolinha verde ("Token válido"), amarela ("Rate limit · Ns"), vermelha ("Token inválido") ou cinza ("Verificando token…"), e o total de requisições por hora. Atualiza a cada 10 segundos.
-- **Paleta de comandos** (`⌘K` / `Ctrl+K`): navegar entre as telas, abrir visões salvas, recarregar a fila de PRs e trocar o tema.
+- **Paleta de comandos** (`⌘K` / `Ctrl+K`): navegar entre as telas do perfil, abrir visões salvas, recarregar a fila de PRs, mudar de perfil e trocar o tema.
 - **Sidebar**: o item "Fila de CRs" mostra quantos PRs esperam a sua revisão, e o grupo "Visões" lista as visões salvas.
-- **Atalhos de teclado** no estilo "G e depois letra": `G F` vai para a Fila de CRs, `G E` para a Equipe e `G C` para a Configuração. Os atalhos são ignorados enquanto o foco está num campo de texto.
+- **Atalhos de teclado** no estilo "G e depois letra": `G F` vai para a Fila de CRs, `G L` para o Painel do líder, `G D` para o Dashboard, `G E` para a Equipe e `G C` para a Configuração. Valem nos dois perfis. Os atalhos são ignorados enquanto o foco está num campo de texto.
 - **Tema** escuro (padrão) ou claro pelo botão no header (com transição circular via View Transitions), ou também "do sistema" pela paleta.
 - **Notificações (toasts)** no canto inferior direito para sucesso e erro de sincronizações e salvamentos.
+
+### 3.11 Dashboard (`/dashboard`)
+
+Tendências da fila nos últimos 30 dias (ou desde o início da gravação, se for mais recente), com filtro por time. Uma única seção mostra um gráfico por vez, escolhido nas abas Fila, Idade, Repositórios, Primeira revisão, Throughput, Carga por pessoa e Atividade; só o gráfico da aba ativa fica montado. Os gráficos usam os componentes do beUI quando há um adequado e o chart do shadcn (Recharts) para as séries temporais, que o beUI não tem.
+
+| Gráfico | Componente | O que mostra |
+| --- | --- | --- |
+| Fila ao longo do tempo | Recharts (área empilhada) | PRs abertos no fim de cada dia: aguardando revisão, em revisão e aprovados |
+| Distribuição por idade | beUI `composition-chart` | Parte da fila no prazo, em atenção e crítica, pelo SLA de cada repositório |
+| PRs por repositório | beUI `composition-chart` | Os 4 repositórios com mais PRs abertos no período e o resto em "Outros" |
+| Tempo até a primeira revisão | Recharts (linhas) | Mediana e percentil 75 por dia da revisão, só com PRs vistos antes de serem revisados |
+| Throughput | Recharts (barras) | PRs abertos e concluídos (mergeados ou recusados) por dia |
+| Carga de revisão por pessoa | beUI `bump-chart` | Posição de cada pessoa pelas revisões pendentes nos últimos 10 dias, contando os PRs abertos hoje pelo dia em que foram criados |
+| Atividade de revisão | beUI `heat-calendar` | PRs que receberam a primeira revisão em cada dia, nas últimas 52 semanas |
+
+- Todos os gráficos têm skeleton enquanto carregam, estado vazio, tooltip em pt-BR com `tabular-nums`, `aria-label` com um resumo em frase e o botão **Ver como tabela**, que troca o gráfico por uma tabela com os mesmos números.
+- As séries saem de `pr_history` em `GET /api/dashboard` (regras em `src/domain/dashboard.ts`, com testes). A carga por pessoa vem da fila ao vivo, a mesma da página Equipe.
+- Os componentes do beUI ficam em `src/components/charts/` e foram traduzidos para pt-BR. O calendário de atividade ancora o tooltip na grade (e não na célula) para posicioná-lo já no primeiro hover.
+
+### 3.12 Perfis Dev e Líder
+
+O app tem dois perfis que mudam a experiência, não as permissões:
+
+- **Dev** (padrão): o menu fica como sempre, a home é a Fila de CRs e o item da fila mostra quantos PRs esperam a sua revisão.
+- **Líder** (líder técnico ou PO): o menu começa pelo **Painel do líder** (`/lideranca`, atalho `G L`), seguido de Fila de CRs, Dashboard, Equipe e Configuração. A Bancada sai do menu, mas continua acessível pela URL e pelo atalho `G B`. A marca da sidebar leva ao Painel, e o item do Painel mostra em vermelho quantos PRs passaram do SLA crítico (fora os silenciados).
+- A troca fica no rodapé da sidebar (segmentado "Dev | Líder"; no trilho recolhido, um ícone com tooltip) e no `⌘K` ("Mudar para perfil Líder/Dev"). Trocar leva para a home do perfil e mostra um toast.
+- O perfil fica no cookie `cr_profile` (`dev` ou `lead`), lido pelo layout no servidor para o menu já vir certo no primeiro HTML.
+
+### 3.13 Painel do líder (`/lideranca`)
+
+Visão operacional para acompanhar times, projetos, PRs e o andamento de cada um, com o que pede ação primeiro. Usa a fila ao vivo (o mesmo cache da Fila de CRs, sem chamadas extras ao Bitbucket), o `pr_history`, os projetos e os times. Filtro de time e período (7, 14, 30 ou 90 dias) no cabeçalho; escolher um time na aba Times também filtra as outras abas. Atualiza no intervalo de polling configurado. Toda a interface usa componentes do beUI.
+
+| Aba | O que mostra | Componentes |
+| --- | --- | --- |
+| Resumo | Indicadores (abertos, acima do SLA crítico, sem revisor, aprovados parados, entregues no período e ciclo mediano, com tendência e comparação com o período anterior); **Atenção agora** com os 10 PRs mais graves (o "Ver todos" abre a aba PRs filtrada pelos sinais de ação); saúde da fila pelo SLA; funil de entrega dos PRs abertos no período (abertos, revisados, aprovados e concluídos) | `Card`, `AnimatedNumber`, `Sparkline`, bloco `notification-stack`, `DonutChart`, `FunnelChart` |
+| Times | Um card por time, do mais grave para o menos: saúde (Saudável, Atenção, Crítico), contagens, entregas por dia, ciclo mediano, plantão de hoje e as pessoas; histórico diário de saúde | `Card` selecionável, `AnimatedBadge`, `Sparkline`, `StatusBar`, `AvatarGroup` |
+| Projetos | Projetos e features (ativos, concluídos ou todos) com % concluído, CRs em risco e flag **Parado**; ao expandir, estágios dos CRs, métricas, autores, a lista de CRs vinculados com riscos e a linha do tempo recente (aberto, 1ª revisão, aprovado, concluído) | `BouncyAccordion`, `AnimatedBadge`, `AvatarGroup`, `Timeline` |
+| PRs | Todos os PRs abertos do escopo com time, autor, idade, estado, revisores e riscos, ordenados pelo risco; filtro por riscos e times; 25 por página; clicar abre o mesmo painel de detalhes da Fila, com as mesmas ações | `Table`, `MultiSelect`, `Pagination`, `Drawer` |
+| Pessoas | Carga por pessoa (para revisar, atrasadas, PRs abertos e PRs próprios em risco), com plantão e menor carga; ranking de carga dos últimos dias | `Table`, `AnimatedBadge`, `bump-chart` |
+
+**Sinais de risco por PR** (`src/domain/lead.ts`, com testes), do mais grave para o menos:
+
+| Sinal | Gravidade | Quando dispara |
+| --- | --- | --- |
+| SLA crítico | Crítico | Passou do SLA crítico do repositório |
+| Build falhou | Crítico | O último build conhecido do PR falhou |
+| SLA em atenção | Atenção | Passou do SLA de atenção do repositório |
+| Sem revisor | Atenção | Nenhum revisor indicado |
+| Aprovado parado | Atenção | Aprovado há mais de 24h e ainda aberto |
+| Idas e voltas | Atenção | 2 ou mais ciclos de pedido de mudança |
+| Sem atividade | Atenção | Sem atualização há mais de 48h |
+| PR muito grande | Informativo | Mais de 1000 linhas alteradas |
+
+- "Atenção agora" e o contador da aba PRs consideram só os sinais críticos e de atenção, fora os PRs silenciados.
+- **Saúde do time:** crítico com 2 ou mais PRs acima do SLA crítico; atenção com qualquer PR crítico ou com sinal de atenção; saudável no resto. O histórico diário usa só o SLA (é o que o `pr_history` permite reconstruir), e o dia de hoje usa o retrato ao vivo, com todos os sinais.
+- **Projeto parado:** ativo, com CR aberto e sem atividade nos CRs há mais de 5 dias. O % concluído conta os CRs concluídos sobre os CRs com histórico gravado.
+- Os limites ficam em `LEAD_LIMITS` e `CRITICAL_TEAM_THRESHOLD`, em `src/domain/lead.ts`.
 
 ---
 
@@ -271,7 +360,15 @@ Todas as rotas ficam em `src/app/api` e respondem JSON. Erros seguem o formato `
 | GET / POST | `/api/config/members` | Lista membros / adiciona membro manual |
 | PATCH / DELETE | `/api/config/members/[uuid]` | Altera `monitored` / remove membro |
 | GET / POST | `/api/config/teams` | Lista / cria time |
-| PUT / DELETE | `/api/config/teams/[id]` | Atualiza / exclui time |
+| PUT / DELETE | `/api/config/teams/[id]` | Atualiza (inclusive a escala em `rotation`) / exclui time |
+| GET / POST | `/api/focus` | Fila de foco ativa / fixa um PR (`FOCUS_FULL` acima de 3) |
+| PATCH / DELETE | `/api/focus/[id]` | `start`, `pause` ou `complete` / tira do foco |
+| POST | `/api/focus/pause-all` | Pausa todos os cronômetros (usado ao fechar a aba) |
+| GET | `/api/reports/weekly?week=AAAA-MM-DD` | Relatório da semana que contém a data, em Markdown |
+| GET | `/api/dashboard?teamId=&days=` | Séries diárias do Dashboard a partir de `pr_history`, com a comparação com a janela anterior (`days` em 7, 14, 30 ou 90) |
+| GET | `/api/dashboard/teams?days=` | As mesmas séries por time, alinhadas nos mesmos dias, para comparar os times |
+| GET | `/api/dashboard/features?teamId=&days=` | Projetos com o andamento dos CRs vinculados, entregas e fila aberta por tipo de trabalho |
+| GET | `/api/lead?teamId=&days=` | Painel do líder: fila ao vivo com os sinais de risco, indicadores, funil, saúde de cada time, andamento dos projetos e carga por pessoa |
 | GET / PUT | `/api/config/settings` | Lê / altera intervalo de polling e integração com o Jira |
 | GET / POST | `/api/config/views` | Lista / cria visão salva |
 | PATCH / DELETE | `/api/config/views/[id]` | Renomeia ou atualiza / exclui visão |
@@ -381,10 +478,14 @@ Cada cor semântica tem uma variante `-foreground` para texto, ajustada separada
 ## 7. Observações e limites atuais
 
 - O cache, o contador de requisições e o estado de rate limit vivem **em memória** no processo do servidor. Reiniciar o servidor zera tudo isso, mas não a configuração, que fica no SQLite.
-- O app foi pensado para **uso local por uma pessoa**. Não há autenticação de usuários; quem acessa a porta `43123` tem acesso total à configuração.
+- O app foi pensado para **uso local por uma pessoa**. Não há autenticação de usuários; quem acessa a porta `43123` tem acesso total à configuração. O perfil Líder só muda o menu e a home, não restringe nada.
+- No Painel do líder, **Build falhou** e **PR muito grande** só aparecem para PRs cujo build ou tamanho já foi consultado pela Fila de CRs ou pelo detalhe do PR; o Painel não faz essas chamadas sozinho.
 - O endpoint `/api/status` consulta o Bitbucket (`/user`) a cada 10 segundos por aba aberta, sem cache. Isso entra na contagem de requisições por hora e pode ser relevante se houver muitas abas abertas.
 - A trava de "Atualizar" (uma vez a cada 10 segundos) vale por conjunto de repositórios e membros monitorados, e não por time ou filtro.
 - **Badge e notificações dependem do app aberto** (aba ou PWA, mesmo minimizado). Não há servidor de push: com o navegador fechado, nada é avisado.
 - O **tamanho** custa uma chamada de diffstat por PR visível na primeira vez e de novo só quando o PR muda; o **build** custa uma chamada por PR aprovado visível a cada intervalo de polling.
 - "Até amanhã às 9h" usa o fuso horário do processo do servidor, que no uso local é o da máquina.
-- O snapshot da migração `0001` estava defasado, então `drizzle-kit generate` pede confirmações interativas; a `0002` foi escrita à mão.
+- O snapshot da migração `0001` estava defasado, então `drizzle-kit generate` pede confirmações interativas; da `0002` em diante as migrações foram escritas à mão.
+- Os tempos do relatório têm a precisão do polling: o app percebe a primeira revisão, os ciclos de mudança e a saída da fila na próxima atualização, e só enquanto está aberto. PRs que já tinham revisão quando o app os viu ficam fora da mediana.
+- O histórico com título e ciclos de mudança começou a ser gravado com a migração `0004`; semanas anteriores aparecem sem esses dados.
+- O Dashboard só enxerga o que o app viu: PRs abertos e fechados enquanto ele estava fechado não entram, e os dias antes do início da gravação não aparecem. A "Carga de revisão por pessoa" reconstrói o passado a partir da fila atual (quem revisa hoje e quando cada PR foi criado), então não mostra revisões que já foram feitas.

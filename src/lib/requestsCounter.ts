@@ -26,10 +26,21 @@ class RequestsCounter {
 declare global {
   // eslint-disable-next-line no-var
   var __crTrackerRequestsCounter: RequestsCounter | undefined;
+  // eslint-disable-next-line no-var
+  var __crTrackerRefreshCounter: RequestsCounter | undefined;
 }
 
 export const requestsCounter =
   globalThis.__crTrackerRequestsCounter ?? new RequestsCounter();
 
 globalThis.__crTrackerRequestsCounter = requestsCounter;
+
+/**
+ * Uma entrada por atualização da fila que fala com o Bitbucket
+ * (intervalo com a aba aberta ou Atualizar). Não conta cada repositório.
+ */
+export const refreshCounter =
+  globalThis.__crTrackerRefreshCounter ?? new RequestsCounter();
+
+globalThis.__crTrackerRefreshCounter = refreshCounter;
 

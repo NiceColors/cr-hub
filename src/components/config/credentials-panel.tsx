@@ -6,6 +6,7 @@ import { Button } from "@/components/motion/button/base";
 import { Input } from "@/components/motion/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionHeader } from "@/components/config/section-header";
+import { QueryError } from "@/components/query-error";
 import { useClearCredentials, useCredentials, useSaveCredentials } from "@/hooks/use-config";
 import type { Credentials } from "@/lib/api/config";
 
@@ -75,8 +76,12 @@ function CredentialsForm({ initial }: { initial: Credentials }) {
         classNames={{ input: "font-mono text-sm" }}
       />
       <p className="text-xs text-muted-foreground">
-        Ao salvar, o app testa as credenciais no Bitbucket antes de trocar as atuais. Elas ficam
-        no banco local (<span className="font-mono">.data/</span>) e têm prioridade sobre o{" "}
+        O token precisa dos escopos{" "}
+        <span className="font-mono">read:pullrequest:bitbucket</span> e{" "}
+        <span className="font-mono">write:pullrequest:bitbucket</span>. Ao salvar, o app testa as
+        credenciais no Bitbucket antes de trocar as atuais. Elas ficam no banco local (
+        <span className="font-mono">.data/</span>
+        ) e têm prioridade sobre o{" "}
         <span className="font-mono">.env</span>. O token nunca é enviado de volta ao navegador.
       </p>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -114,7 +119,14 @@ export function CredentialsPanel() {
         title="Bitbucket"
         description="Workspace, e-mail e API token usados em todas as chamadas ao Bitbucket."
       />
-      {!data ? (
+      {credentials.isError && !data ? (
+        <QueryError
+          title="Não foi possível carregar as credenciais"
+          error={credentials.error}
+          onRetry={() => credentials.refetch()}
+          retrying={credentials.isFetching}
+        />
+      ) : !data ? (
         <Skeleton className="h-56 w-full rounded-2xl" />
       ) : data.editable ? (
         <CredentialsForm

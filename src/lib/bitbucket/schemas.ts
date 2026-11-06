@@ -20,6 +20,27 @@ export const bitbucketRepoSchema = z.object({
   uuid: z.string(),
   slug: z.string(),
   name: z.string(),
+  description: z.string().optional().nullable(),
+  is_private: z.boolean().optional().nullable(),
+  language: z.string().optional().nullable(),
+  updated_on: z.string().optional().nullable(),
+  mainbranch: z
+    .object({ name: z.string().optional().nullable() })
+    .optional()
+    .nullable(),
+  project: z
+    .object({
+      key: z.string().optional().nullable(),
+      name: z.string().optional().nullable(),
+    })
+    .optional()
+    .nullable(),
+  links: z
+    .object({
+      html: bitbucketLinkSchema.optional(),
+    })
+    .optional()
+    .nullable(),
 });
 
 export const bitbucketPaginatedSchema = <T extends z.ZodTypeAny>(item: T) =>

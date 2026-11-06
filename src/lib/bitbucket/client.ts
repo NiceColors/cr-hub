@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  getRateLimitRemainingSeconds,
+  retryAfterSeconds,
+  setRateLimitUntilSecondsFromNow,
+  SHORT_RETRY_SECONDS,
+} from "@/lib/bitbucket/rateLimit";
 import { requestsCounter } from "@/lib/requestsCounter";
 import {
   bitbucketCommentSchema,
@@ -14,6 +20,9 @@ import {
 } from "@/lib/bitbucket/schemas";
 import { buildOpenPrQueryBatches } from "@/lib/bitbucket/queries";
 import { resolveCredentials, type BitbucketCredentials } from "@/lib/bitbucket/credentials";
+import { PULL_REQUEST_READ_SCOPE } from "@/lib/bitbucket/scopes";
+
+export { PULL_REQUEST_READ_SCOPE };
 
 const BITBUCKET_API_BASE = "https://api.bitbucket.org/2.0";
 
@@ -21,17 +30,46 @@ export class BitbucketHttpError extends Error {
   status: number;
   retryAfterSeconds?: number;
   url: string;
+  /** Mensagem em `error.message` do corpo, quando o Bitbucket envia JSON. */
+  detail?: string;
+  requiredScopes?: string[];
 
   constructor(
     message: string,
-    opts: { status: number; url: string; retryAfterSeconds?: number },
+    opts: {
+      status: number;
+      url: string;
+      retryAfterSeconds?: number;
+      detail?: string;
+      requiredScopes?: string[];
+    },
   ) {
     super(message);
     this.name = "BitbucketHttpError";
     this.status = opts.status;
     this.url = opts.url;
     this.retryAfterSeconds = opts.retryAfterSeconds;
+    this.detail = opts.detail;
+    this.requiredScopes = opts.requiredScopes;
   }
+}
+
+export function readBitbucketErrorBody(json: unknown): {
+  detail?: string;
+  requiredScopes?: string[];
+} {
+  if (!json || typeof json !== "object") return {};
+  const error = (json as { error?: unknown }).error;
+  if (!error || typeof error !== "object") return {};
+  const message = (error as { message?: unknown }).message;
+  const required = (error as { detail?: { required?: unknown } }).detail?.required;
+  const requiredScopes = Array.isArray(required)
+    ? required.filter((scope): scope is string => typeof scope === "string")
+    : undefined;
+  return {
+    detail: typeof message === "string" ? message : undefined,
+    requiredScopes: requiredScopes?.length ? requiredScopes : undefined,
+  };
 }
 
 function getAuth(override?: BitbucketCredentials) {
@@ -79,6 +117,15 @@ export async function bitbucketFetchJson<T>(
 
   let lastErr: unknown = undefined;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const pausedFor = getRateLimitRemainingSeconds();
+    if (pausedFor > 0) {
+      throw new BitbucketHttpError("Bitbucket retornou 429", {
+        status: 429,
+        url,
+        retryAfterSeconds: pausedFor,
+      });
+    }
+
     requestsCounter.add();
 
     const controller = new AbortController();
@@ -111,29 +158,32 @@ export async function bitbucketFetchJson<T>(
       return parsed.data;
     }
 
-    const retryAfterHeader = res.headers.get("retry-after");
-    const retryAfterSeconds =
-      retryAfterHeader && /^\d+$/.test(retryAfterHeader)
-        ? Number(retryAfterHeader)
-        : undefined;
-
+    const retryAfter = retryAfterSeconds(res.headers.get("retry-after"));
+    const body = readBitbucketErrorBody(await readJsonBody(res));
     const err = new BitbucketHttpError(`Bitbucket retornou ${res.status}`, {
       status: res.status,
       url,
-      retryAfterSeconds,
+      retryAfterSeconds: res.status === 429 ? retryAfter : undefined,
+      detail: body.detail,
+      requiredScopes: body.requiredScopes,
     });
     lastErr = err;
 
-    const isRetryable =
-      res.status === 429 || (res.status >= 500 && res.status <= 599);
-    if (!isRetryable || attempt === maxAttempts) break;
+    if (res.status === 429) {
+      const canRetryQuickly = retryAfter <= SHORT_RETRY_SECONDS && attempt < maxAttempts;
+      if (!canRetryQuickly) {
+        setRateLimitUntilSecondsFromNow(retryAfter);
+        break;
+      }
+      await sleep(retryAfter * 1000);
+      continue;
+    }
+
+    const isServerError = res.status >= 500 && res.status <= 599;
+    if (!isServerError || attempt === maxAttempts) break;
 
     const backoffSeconds = Math.pow(2, attempt - 1); // 1s, 2s, 4s
-    const waitMs = Math.max(
-      backoffSeconds * 1000,
-      (retryAfterSeconds ?? 0) * 1000,
-    );
-    await sleep(waitMs);
+    await sleep(backoffSeconds * 1000);
   }
 
   throw lastErr instanceof Error ? lastErr : new Error("Falha ao chamar Bitbucket");
@@ -198,11 +248,35 @@ export function getWorkspaceFromEnv() {
 export async function checkCredentials(credentials: BitbucketCredentials) {
   const opts = { credentials, maxAttempts: 1 };
   await bitbucketFetchJson("/user?fields=uuid", z.object({ uuid: z.string() }), opts);
-  await bitbucketFetchJson(
-    `/repositories/${encodeURIComponent(credentials.workspace)}?pagelen=1&fields=values.uuid`,
-    z.object({ values: z.array(z.unknown()) }),
+  const repos = await bitbucketFetchJson(
+    `/repositories/${encodeURIComponent(credentials.workspace)}?pagelen=1&fields=values.slug`,
+    z.object({ values: z.array(z.object({ slug: z.string() })) }),
     opts,
   );
+  const slug = repos.values[0]?.slug;
+  if (!slug) return;
+
+  try {
+    await bitbucketFetchJson(
+      `/repositories/${encodeURIComponent(credentials.workspace)}/${encodeURIComponent(slug)}/pullrequests?pagelen=1&fields=values.id`,
+      z.object({ values: z.array(z.unknown()) }),
+      opts,
+    );
+  } catch (err) {
+    if (!(err instanceof BitbucketHttpError)) throw err;
+    if (err.requiredScopes?.includes(PULL_REQUEST_READ_SCOPE)) throw err;
+    if (err.status === 401 || err.status === 429) throw err;
+  }
+}
+
+async function readJsonBody(res: Response): Promise<unknown> {
+  const raw = await res.text();
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
 }
 
 const paginatedUnknownSchema = z.object({
@@ -258,7 +332,20 @@ export function createBitbucketClient(hooks: BitbucketCallHooks = {}): Bitbucket
       const params = new URLSearchParams({
         role: "member",
         pagelen: "100",
-        fields: "values.uuid,values.slug,values.name,next",
+        fields: [
+          "values.uuid",
+          "values.slug",
+          "values.name",
+          "values.description",
+          "values.is_private",
+          "values.language",
+          "values.updated_on",
+          "values.mainbranch.name",
+          "values.project.key",
+          "values.project.name",
+          "values.links.html.href",
+          "next",
+        ].join(","),
       });
       const first = `/repositories/${encodeURIComponent(workspace)}?${params.toString()}`;
       const rows = await fetchAllPages(first, paginatedUnknownSchema, { hooks });

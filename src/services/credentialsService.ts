@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { bitbucketCredentials } from "@/lib/db/schema";
 import { BitbucketHttpError, checkCredentials } from "@/lib/bitbucket/client";
+import { PULL_REQUEST_READ_SCOPE } from "@/lib/bitbucket/scopes";
 import {
   maskToken,
   resolveCredentials,
@@ -35,6 +36,8 @@ export class CredentialsRejectedError extends Error {
 
 function rejectionMessage(err: BitbucketHttpError, workspace: string) {
   if (err.status === 401) return "O Bitbucket recusou o e-mail ou o token (401).";
+  if (err.requiredScopes?.includes(PULL_REQUEST_READ_SCOPE))
+    return "O token não tem o escopo para ler pull requests (read:pullrequest:bitbucket). Gere um API token com esse escopo e, para entrar como revisor, inclua também write:pullrequest:bitbucket.";
   if (err.status === 403)
     return "O token não tem permissão para ler os repositórios do workspace (403).";
   if (err.status === 404) return `Workspace "${workspace}" não encontrado (404).`;

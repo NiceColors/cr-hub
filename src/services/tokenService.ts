@@ -1,5 +1,5 @@
 import { BitbucketHttpError } from "@/lib/bitbucket/client";
-import { requestsCounter } from "@/lib/requestsCounter";
+import { refreshCounter } from "@/lib/requestsCounter";
 import { getRateLimitRemainingSeconds } from "@/lib/pullRequestsCache";
 import {
   getLastTokenVerifyAtMs,
@@ -50,7 +50,7 @@ export function buildStatusPayload() {
     tokenState: token.state,
     tokenValid: isTokenUsable(token.state),
     checkedAt: token.checkedAtMs ? new Date(token.checkedAtMs).toISOString() : null,
-    requestsLastHour: requestsCounter.countLastHour(),
+    requestsLastHour: refreshCounter.countLastHour(),
     retryAfterSeconds: retryAfterSeconds > 0 ? retryAfterSeconds : undefined,
     error: token.error,
   };

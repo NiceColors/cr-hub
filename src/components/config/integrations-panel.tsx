@@ -7,6 +7,7 @@ import { Input } from "@/components/motion/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CredentialsPanel } from "@/components/config/credentials-panel";
 import { SectionHeader } from "@/components/config/section-header";
+import { QueryError } from "@/components/query-error";
 import { useSetJira, useSettings } from "@/hooks/use-config";
 import type { JiraSettings } from "@/lib/api/config";
 
@@ -74,6 +75,13 @@ export function IntegrationsPanel() {
           <JiraForm
             key={`${settings.data.jiraBaseUrl}|${settings.data.jiraProjectKeys}`}
             initial={settings.data}
+          />
+        ) : settings.isError ? (
+          <QueryError
+            title="Não foi possível carregar a integração com o Jira"
+            error={settings.error}
+            onRetry={() => settings.refetch()}
+            retrying={settings.isFetching}
           />
         ) : (
           <Skeleton className="h-40 w-full rounded-2xl" />

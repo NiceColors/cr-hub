@@ -25,6 +25,7 @@ import { useAwaitingReview } from "@/hooks/use-awaiting-review";
 import { useSavedViews } from "@/hooks/use-config";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { useShortcutLabel } from "@/hooks/use-shortcut-label";
+import { ENABLE_LEAD_VIEW } from "@/lib/features";
 import { PROFILE_HOME } from "@/lib/profile";
 
 function CountBadge({ count, label, tone }: { count: number; label: string; tone: "primary" | "destructive" }) {
@@ -58,7 +59,7 @@ function CriticalBadge() {
 
 function badgeFor(href: string, profile: "dev" | "lead") {
   if (profile === "dev" && href === "/") return <AwaitingBadge />;
-  if (profile === "lead" && href === "/lideranca") return <CriticalBadge />;
+  if (ENABLE_LEAD_VIEW && profile === "lead" && href === "/lideranca") return <CriticalBadge />;
   return undefined;
 }
 

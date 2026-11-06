@@ -3,7 +3,13 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
-import { PROFILE_HOME, PROFILE_LABELS, persistProfile, type Profile } from "@/lib/profile";
+import {
+  PROFILE_HOME,
+  PROFILE_LABELS,
+  normalizeProfile,
+  persistProfile,
+  type Profile,
+} from "@/lib/profile";
 
 type ProfileContextValue = {
   profile: Profile;
@@ -26,18 +32,19 @@ export function ProfileProvider({
   initialProfile: Profile;
   children: React.ReactNode;
 }) {
-  const [profile, setProfileState] = useState(initialProfile);
+  const [profile, setProfileState] = useState(() => normalizeProfile(initialProfile));
   const router = useRouter();
 
   const setProfile = useCallback(
     (next: Profile) => {
-      if (next === profile) return;
-      setProfileState(next);
-      persistProfile(next);
-      router.push(PROFILE_HOME[next]);
-      toast.info(`Perfil ${PROFILE_LABELS[next]} ativo`, {
+      const normalized = normalizeProfile(next);
+      if (normalized === profile) return;
+      setProfileState(normalized);
+      persistProfile(normalized);
+      router.push(PROFILE_HOME[normalized]);
+      toast.info(`Perfil ${PROFILE_LABELS[normalized]} ativo`, {
         description:
-          next === "lead"
+          normalized === "lead"
             ? "O menu e a home agora mostram o Painel do líder."
             : "O menu e a home voltaram para a Fila de CRs.",
       });
@@ -45,6 +52,9 @@ export function ProfileProvider({
     [profile, router],
   );
 
-  const value = useMemo(() => ({ profile, setProfile }), [profile, setProfile]);
+  const value = useMemo(
+    () => ({ profile: normalizeProfile(profile), setProfile }),
+    [profile, setProfile],
+  );
   return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>;
 }

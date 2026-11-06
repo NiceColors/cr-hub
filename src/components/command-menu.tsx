@@ -8,7 +8,8 @@ import { BookmarkIcon, PaletteIcon, RefreshCwIcon, RepeatIcon } from "lucide-rea
 import { CommandPalette, type CommandItem } from "@/components/motion/command-palette";
 import { ALL_NAV_ITEMS, navItemsFor } from "@/components/nav-items";
 import { useProfile } from "@/components/profile-provider";
-import { PROFILE_LABELS } from "@/lib/profile";
+import { ENABLE_LEAD_VIEW } from "@/lib/features";
+import { PROFILE_LABELS, type Profile } from "@/lib/profile";
 import { useSavedViews } from "@/hooks/use-config";
 import { THEME_OPTIONS } from "@/components/theme-toggle";
 import { applyPalette, PALETTES } from "@/lib/palette";
@@ -90,7 +91,7 @@ function CommandMenu() {
   const { setTheme } = useTheme();
   const views = useSavedViews().data?.views;
   const { profile, setProfile } = useProfile();
-  const otherProfile = profile === "dev" ? "lead" : "dev";
+  const otherProfile: Profile = profile === "dev" ? "lead" : "dev";
 
   const items = useMemo<CommandItem[]>(
     () => [
@@ -118,14 +119,18 @@ function CommandMenu() {
         icon: RefreshCwIcon,
         onSelect: () => void queryClient.refetchQueries({ queryKey: queryKeys.pullRequests }),
       },
-      {
-        id: "action:profile",
-        label: `Mudar para perfil ${PROFILE_LABELS[otherProfile]}`,
-        group: "Ações",
-        keywords: ["perfil", "líder", "po", "dev", "modo"],
-        icon: RepeatIcon,
-        onSelect: () => setProfile(otherProfile),
-      },
+      ...(ENABLE_LEAD_VIEW
+        ? [
+            {
+              id: "action:profile",
+              label: `Mudar para perfil ${PROFILE_LABELS[otherProfile]}`,
+              group: "Ações",
+              keywords: ["perfil", "líder", "po", "dev", "modo"],
+              icon: RepeatIcon,
+              onSelect: () => setProfile(otherProfile),
+            },
+          ]
+        : []),
       ...THEME_OPTIONS.map(({ value, label, icon }) => ({
         id: `theme:${value}`,
         label: `Tema ${label.toLowerCase()}`,

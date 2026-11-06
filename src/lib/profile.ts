@@ -1,5 +1,10 @@
+import { ENABLE_LEAD_VIEW } from "@/lib/features";
+
 export const PROFILES = ["dev", "lead"] as const;
 export type Profile = (typeof PROFILES)[number];
+
+/** Perfis que a interface oferece. Com a visão de líder desligada, só Dev. */
+export const UI_PROFILES: readonly Profile[] = ENABLE_LEAD_VIEW ? PROFILES : ["dev"];
 
 export const DEFAULT_PROFILE: Profile = "dev";
 export const PROFILE_COOKIE = "cr_profile";
@@ -15,8 +20,12 @@ export const PROFILE_HOME: Record<Profile, string> = {
   lead: "/lideranca",
 };
 
+export function normalizeProfile(profile: Profile): Profile {
+  return ENABLE_LEAD_VIEW || profile === "dev" ? profile : DEFAULT_PROFILE;
+}
+
 export function parseProfile(value: string | null | undefined): Profile {
-  return value === "lead" ? "lead" : DEFAULT_PROFILE;
+  return normalizeProfile(value === "lead" ? "lead" : DEFAULT_PROFILE);
 }
 
 export function persistProfile(profile: Profile) {

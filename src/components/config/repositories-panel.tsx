@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   ExternalLinkIcon,
   FolderGit2Icon,
@@ -251,7 +252,7 @@ function RepositoryCard({ repository, index }: { repository: Repository; index: 
   return (
     <article
       className={cn(
-        "relative overflow-hidden rounded-2xl border bg-card [content-visibility:auto] [contain-intrinsic-size:auto_220px]",
+        "relative overflow-hidden rounded-2xl border bg-card",
         "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:fill-mode-backwards",
         !repository.monitored && "opacity-80",
       )}
@@ -388,12 +389,64 @@ function RepositoryCard({ repository, index }: { repository: Repository; index: 
   );
 }
 
+function RepositoryVirtualList({ repositories }: { repositories: Repository[] }) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+
+  useLayoutEffect(() => {
+    const node = parentRef.current;
+    if (!node) return;
+    setScrollMargin(node.getBoundingClientRect().top + window.scrollY);
+  }, [repositories.length]);
+
+  const virtualizer = useWindowVirtualizer({
+    count: repositories.length,
+    estimateSize: () => 240,
+    overscan: 6,
+    gap: 12,
+    scrollMargin,
+  });
+
+  return (
+    <div ref={parentRef}>
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          width: "100%",
+          position: "relative",
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const repository = repositories[virtualRow.index];
+          return (
+            <div
+              key={repository.uuid}
+              data-index={virtualRow.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+              }}
+            >
+              <RepositoryCard repository={repository} index={virtualRow.index} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function RepositoriesPanel() {
   const repositoriesQuery = useRepositories();
   const { data, isLoading } = repositoriesQuery;
   const sync = useSyncRepositories();
   const syncState = useMutationButtonState(sync);
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [scope, setScope] = useState<Scope>("all");
   const [sort, setSort] = useState<SortKey>("name");
   const [language, setLanguage] = useState<string | null>(null);
@@ -433,7 +486,7 @@ export function RepositoriesPanel() {
       if (scope === "idle" && repo.monitored) return false;
       if (language && repo.language !== language) return false;
       return matchesSearch(
-        search,
+        deferredSearch,
         repo.name,
         repo.slug,
         repo.description,
@@ -455,7 +508,7 @@ export function RepositoriesPanel() {
       }
       return a.name.localeCompare(b.name, "pt");
     });
-  }, [repositories, search, scope, language, sort]);
+  }, [repositories, deferredSearch, scope, language, sort]);
 
   const syncedLabel = formatWhen(lastSync ?? null);
 
@@ -584,11 +637,7 @@ export function RepositoriesPanel() {
               </EmptyHeader>
             </Empty>
           ) : (
-            <div className="flex flex-col gap-3">
-              {visible.map((repository, index) => (
-                <RepositoryCard key={repository.uuid} repository={repository} index={index} />
-              ))}
-            </div>
+            <RepositoryVirtualList repositories={visible} />
           )}
         </>
       )}
